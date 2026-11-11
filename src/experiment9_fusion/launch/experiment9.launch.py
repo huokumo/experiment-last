@@ -40,6 +40,19 @@ def setup(context):
     prefix9 = Path(get_package_prefix('experiment9_fusion'))
     prefix7 = Path(get_package_prefix('experiment7_lidar'))
 
+    # 安装目录和源码对不上时（典型情形：教学包覆盖解压到残留了上一版 build/ 的
+    # 工作区，make 判定无需重装），launch 原本只会抛一句
+    #   executable 'state_node.py' not found on the libexec directory ...
+    # 学生看不出下一步该做什么。这里提前拦住，直接给出要执行的那条命令。
+    for path in (prefix7 / 'lib/experiment7_lidar/state_node.py',
+                 prefix7 / 'lib/experiment7_lidar/preprocess_node.py',
+                 prefix9 / 'lib/experiment9_fusion/fusion_node.py'):
+        if not path.exists():
+            raise RuntimeError(
+                f'安装目录里缺少 {path}，说明工作区里的 build/install 还是旧版本。'
+                '在实验工作区执行 bash tools/build.sh 重新编译，'
+                '脚本会自己清掉旧构建，不需要手工删 build/。')
+
     runtime = Path(tempfile.mkdtemp(prefix='experiment9_'))
     # The Livox scan pattern ships with Experiment 7. Reusing it keeps the two
     # experiments looking at the same sensor instead of inventing a third one.

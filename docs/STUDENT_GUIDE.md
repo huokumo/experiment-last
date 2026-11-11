@@ -109,7 +109,7 @@ y = (v - cy) * z / fy
 | 3 发目标点 | 45 min | `send_goal.sh`，盯 `distance_remaining` 是否单调下降 | `status: SUCCEEDED`、碰撞帧 0 |
 | 4 收尾 | 15 min | 填表、写三行结论 | 交 `runs/*.csv` + 点数表 |
 
-**改完代码怎么生效**：`tools/build.sh` 用了 `colcon build --symlink-install`，所以改 `fusion.py` **不用重新编译**——`Ctrl-C` 停掉融合节点、重新 `launch` 即可。如果你自己用不带 `--symlink-install` 的方式编过，就必须重新 `colcon build`，否则改的是源码、跑的是旧副本（症状：改了半天毫无变化）。
+**改完代码怎么生效**：`tools/build.sh` 用了 `colcon build --symlink-install`，所以改 `fusion.py` **不用重新编译**——`Ctrl-C` 停掉融合节点、重新 `launch` 即可。如果你自己用不带 `--symlink-install` 的方式编过，就重新执行一次 `bash tools/build.sh`，否则改的是源码、跑的是旧副本（症状：改了半天毫无变化）。同样，若启动时报 `executable 'xxx.py' not found on the libexec directory`，也是 `build/` 停留在旧版本，执行 `bash tools/build.sh` 即可，脚本会自己清掉旧构建重编，不用手工删目录。
 
 第 0 环节有个 5 分钟演示，务必做一次：
 
