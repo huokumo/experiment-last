@@ -1,0 +1,128 @@
+# 平台运行验证记录
+
+**状态：待执行。** 本文件是空表格，用来在教学平台上跑一遍后逐项填写。
+不要在没有实际运行的情况下把它改成"通过"——这张表是这本实验能不能发出去的唯一依据。
+
+填写方式：每项写清「命令 / 预期 / 实际 / 结论」，实测数据放在 `docs/evidence/` 下（JSON 或 txt，不要只截图）。
+
+## 0. 环境
+
+| 项 | 值 |
+| --- | --- |
+| 日期 | |
+| 镜像 / 系统版本 | Ubuntu 22.04，ROS 2 Humble，Gazebo Fortress |
+| 机器配置（CPU/内存/是否 GPU） | |
+| 工作区路径 | |
+| 是否用教学 ZIP 资源包 | |
+
+## 1. 编译
+
+```bash
+bash tools/install_dependencies.sh
+bash tools/prepare_workspace.sh
+bash tools/build.sh
+```
+
+| 检查 | 预期 | 实际 | 结论 |
+| --- | --- | --- | --- |
+| 三个包全部编译 | `experiment5_depth` / `experiment7_lidar` / `experiment9_fusion` 均成功 | | |
+| `experiment7_lidar/lib` 下有 `libmid360_teaching_system.so` 与 `libr1_planar_motion_system.so` | 两个文件存在 | | |
+| `experiment9_fusion` 的脚本可执行 | `ros2 run experiment9_fusion check_ready.py` 能找到 | | |
+
+## 2. 起场景
+
+```bash
+ros2 launch experiment9_fusion nav_demo.launch.py mode:=solution
+ros2 run experiment9_fusion check_ready.py          # 另一终端
+```
+
+| 检查 | 预期 | 实际 | 结论 |
+| --- | --- | --- | --- |
+| Gazebo 中能看到房间、蓝墙、五个关卡 | 目视确认 | | |
+| 机器人出生在 (-4.4, -3.4) | 西南角 | | |
+| `check_ready.py` | 4/4 通过 | | |
+| `/livox/points` 频率 | 约 5 Hz | | |
+| `/r1/depth/image` 频率 | 约 2 Hz | | |
+| `/r1/fusion/points` 频率 | 约 2 Hz（受深度帧率限制） | | |
+| `/odom` 频率 | 约 50 Hz | | |
+
+> 若 `/r1/fusion/points` 只有 0.7 Hz 左右，说明 `sync_slop` 太小、大量帧配不上。
+
+## 3. 融合质量
+
+```bash
+ros2 run experiment9_fusion cloud_check.py --wall
+```
+
+| 检查 | 预期（`tools/simulate_pipeline.py` 沿路径 37 个位姿的预测） | 实际 | 结论 |
+| --- | --- | --- | --- |
+| K1 深度列 | 起步就可见，峰值 > 1000 点 | | |
+| K1 雷达列 | **= 0**（7.52 m 内 0.35 m 高在最低射线之下） | | |
+| K2 雷达列 | 全程都有数，峰值约 100 点 | | |
+| K2 深度列 | 4 m 外接近 0（不足 2 像素），进到 3 m 内才涨到数百（峰值约 960） | | |
+| K3 雷达列 / 深度列 | 两路都有数（峰值约 180 / 2300），形态不同：稀疏竖线 vs 一整片 | | |
+| K4 深度列 | **= 0**（全程，横梁在相机光轴上界之外） | | |
+| K4 雷达列 | 有数，峰值 > 1000 点 | | |
+| K5 雷达列 / 深度列 | 两路都有数（峰值约 100 / 300），雷达在车还没转向时就报到 | | |
+| 蓝墙墙距偏差（两路差） | < 5 cm | | |
+
+> 判据是「**全程至少有一次看到**」，不是「每一帧都看得到」。`cloud_check` 只测当前位姿：在起点量时 K2、K5 的深度列可能是 0，属正常。想复现上表，把车沿路径开一遍，每个位姿各量一次取峰值。
+
+## 4. 代价地图
+
+```bash
+ros2 run experiment9_fusion costmap_dump.py --save docs/evidence/costmap_start.txt
+```
+
+| 检查 | 预期 | 实际 | 结论 |
+| --- | --- | --- | --- |
+| K1 位置出现 `@` | 有 | | |
+| K5 位置出现 `@` | 有 | | |
+| K4 横梁处**没有**致命格 | 无 | | |
+| `A`（机器人）位置与 Gazebo 一致 | 一致 | | |
+
+## 5. 端到端导航
+
+```bash
+ros2 run experiment9_fusion record_run.py --out docs/evidence/run_reference.csv
+ros2 run experiment9_fusion send_goal.sh          # 另终端
+```
+
+| 检查 | 预期 | 实际 | 结论 |
+| --- | --- | --- | --- |
+| `send_goal` 结果 | `status: SUCCEEDED` | | |
+| 到达耗时 | < 120 s（13.95 m 路径，0.22 m/s） | | |
+| 碰撞帧 | 0 | | |
+| 终点距离 | < 0.30 m | | |
+| 最小安全距离 | > 0 | | |
+| 恢复行为次数 | ≤ 2 | | |
+| 路径是否绕开 K1、K2、K3 | 目视 + `/plan` | | |
+
+## 6. 负向验证（必须做）
+
+这两项决定实验有没有教学价值：能跑通不算，**能按预期跑坏才算**。
+
+| 操作 | 预期现象 | 实际 | 结论 |
+| --- | --- | --- | --- |
+| `z_max` 改 2.0 | 车在 K4 横梁前停死；`costmap_dump` 该处出现 `@` | | |
+| `z_min` 改 0.0 | 车起步就被地面困死；`cloud_check` 总点数暴涨 | | |
+| `mode:=lidar` | 车撞 K1 后被拦住（`collision_blocked` 持续 true） | | |
+| `mode:=depth` | 车在 K2 附近反复修正 / 被拦 | | |
+| TODO 1 的 `t.z` 写成 -1.3 | 点云整体低 2.6 m；`cloud_check --wall` 墙距偏差约 260 cm | | |
+
+## 7. 性能
+
+| 项 | 实测 |
+| --- | --- |
+| 实时率（`gui:=true`） | |
+| 实时率（`gui:=false rviz:=false`） | |
+| 融合节点单帧耗时 | |
+| 虚拟内存占用峰值 | |
+
+## 8. 结论
+
+| 项 | 结论 |
+| --- | --- |
+| 是否可以在课堂上使用 | |
+| 需要修的问题 | |
+| 建议的课时调整 | |

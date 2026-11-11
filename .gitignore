@@ -1,0 +1,15 @@
+build/
+install/
+log/
+runs/
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db3
+*.mcap
+*.pcd
+
+# cloned by tools/prepare_workspace.sh at a pinned commit, never vendored here
+src/experiment5/
+src/experiment7/

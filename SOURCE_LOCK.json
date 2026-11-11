@@ -1,0 +1,62 @@
+{
+  "experiment": 9,
+  "title": "仿真环境下的多传感器融合感知",
+  "platform": {
+    "os": "Ubuntu 22.04",
+    "ros": "ROS 2 Humble",
+    "simulator": "Gazebo Fortress (ignition-gazebo6)"
+  },
+  "sources": [
+    {
+      "name": "experiment5",
+      "role": "R1 机器人模型、depth_camera 传感器、URDF（供 robot_state_publisher）",
+      "repository": "https://github.com/huokumo/experiment5",
+      "commit": "807de9e2454d0c6bd7ab3067e6743acf429e19f9",
+      "license": "BSD-3-Clause",
+      "used_paths": [
+        "models/unitree_r1/model_depth.sdf",
+        "description/r1_depth.urdf",
+        "models/（IGN_GAZEBO_RESOURCE_PATH）"
+      ]
+    },
+    {
+      "name": "experiment7",
+      "role": "Gazebo 系统插件（Mid-360 光线投射、平面运动）、Livox 扫描图案、state_node",
+      "repository": "https://github.com/huokumo/experiment7",
+      "commit": "9ed58e7330504337377b973c1da227c8bd2a9715",
+      "license": "BSD-3-Clause",
+      "used_paths": [
+        "lib/libr1_planar_motion_system.so",
+        "lib/libmid360_teaching_system.so",
+        "vendor/livox/mid360.csv",
+        "scripts/state_node.py"
+      ]
+    },
+    {
+      "name": "livox_laser_simulation scan pattern",
+      "role": "Mid-360 扫描方向图案（仅方向，不含时间语义）",
+      "repository": "https://github.com/Livox-SDK/livox_laser_simulation",
+      "commit": "1cce1073633a062b92e30243a4c2920e45551bb5",
+      "path": "scan_mode/mid360.csv",
+      "sha256": "aa1fc08b6a4400608dbd6ee832b7ea3a9c3c37197e734f60f58fe5abf762269a",
+      "license": "MIT"
+    }
+  ],
+  "generated_assets": [
+    {
+      "path": "src/experiment9_fusion/config/map/warehouse.pgm",
+      "generator": "tools/make_map.py",
+      "note": "由 STATIC_BOXES 光栅化生成，0.05 m/格，280x240，不含 K1-K5"
+    },
+    {
+      "path": "src/experiment9_fusion/config/fusion.yaml",
+      "generator": "tools/derive_extrinsics.py",
+      "note": "外参数值从 model_depth.sdf 的关节链计算，非手抄"
+    }
+  ],
+  "runtime_dependencies": {
+    "nav2": "ros-humble-navigation2 / ros-humble-nav2-bringup",
+    "bridge": "ros-humble-ros-gz",
+    "python": ["numpy", "pyyaml"]
+  }
+}

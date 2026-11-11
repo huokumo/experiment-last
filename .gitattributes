@@ -1,0 +1,7 @@
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.yaml text eol=lf
+*.launch.py text eol=lf
+# occupancy grid raster: P5, must never be line-ending converted
+*.pgm binary
