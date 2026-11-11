@@ -33,7 +33,11 @@ def run(*cmd, cwd=None, capture=False):
 
 
 def extract_archive(repo, revision, target):
-    """把 git 里的某个提交导出到 target（等价 git archive | tar -x）。"""
+    """把 git 里的某个提交导出到 target（等价 git archive | tar -x）。
+
+    返回 {相对 target 的路径: 是否可执行}。权限位必须从 git 索引取：
+    在 Windows 上 os.access(X_OK) 对任何文件都返回真，会把整包标成 755。
+    """
     target.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(['git', '-C', str(repo), 'archive', '--format=tar', revision],
                             stdout=subprocess.PIPE)
@@ -44,6 +48,16 @@ def extract_archive(repo, revision, target):
             tar.extractall(target)
     if proc.wait() != 0:
         raise RuntimeError(f'git archive 失败: {repo} @ {revision}')
+
+    listing = subprocess.run(['git', '-C', str(repo), 'ls-tree', '-r', revision],
+                             check=True, capture_output=True, text=True).stdout
+    modes = {}
+    for line in listing.splitlines():
+        meta, _, path = line.partition('\t')
+        if not path:
+            continue
+        modes[path] = meta.split()[0] == '100755'
+    return modes
 
 
 def sha256(path):
@@ -65,7 +79,7 @@ def collect_files(base, root):
     return files
 
 
-def write_zip(stage, out):
+def write_zip(stage, out, modes):
     out.parent.mkdir(parents=True, exist_ok=True)
     count = 0
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
@@ -78,8 +92,9 @@ def write_zip(stage, out):
                 info.external_attr = (0o40755 << 16) | 0x10
                 zf.writestr(info, b'')
                 continue
-            info = zipfile.ZipInfo(str(relative).replace(os.sep, '/'), ZIP_TIME)
-            mode = 0o100755 if os.access(path, os.X_OK) else 0o100644
+            relative_posix = str(relative).replace(os.sep, '/')
+            info = zipfile.ZipInfo(relative_posix, ZIP_TIME)
+            mode = 0o100755 if modes.get(relative_posix) else 0o100644
             info.external_attr = mode << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, path.read_bytes())
@@ -114,7 +129,7 @@ def main():
         stage = Path(tmp) / 'stage'
         stage.mkdir()
 
-        extract_archive(REPO_ROOT, 'HEAD', stage)
+        modes = extract_archive(REPO_ROOT, 'HEAD', stage)
         (stage / 'BUNDLED_DEPENDENCIES.json').unlink(missing_ok=True)
 
         manifest = {
@@ -140,15 +155,17 @@ def main():
                 run('git', '-C', str(source), 'checkout', '--quiet', commit)
 
             target = stage / 'src' / name
-            extract_archive(source, commit, target)
+            for path, executable in extract_archive(source, commit, target).items():
+                modes[f'src/{name}/{path}'] = executable
             files = collect_files(target, stage)
             manifest['dependencies'][name] = {'commit': commit, 'files': files}
             print(f'{name} @ {commit[:8]}: {len(files)} 个文件已计入清单')
 
         (stage / 'BUNDLED_DEPENDENCIES.json').write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8', newline='\n')
 
-        count = write_zip(stage, out)
+        count = write_zip(stage, out, modes)
 
     size = out.stat().st_size / 1024 / 1024
     print(f'已生成 {out}（{count} 个文件，{size:.1f} MB）')
