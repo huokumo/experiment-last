@@ -110,7 +110,7 @@ def check_extrinsics(model=None):
            f'光轴 {axis.round(3).tolist()}，高 {translation[2]:.3f} m')
 
     if model is None:
-        record('外参与 SDF 一致', True, '未提供 --model，跳过')
+        record('外参与 SDF 一致', True, '找不到 src/experiment5（先跑 tools/prepare_workspace.sh），跳过')
         return
     out = subprocess.run([sys.executable, str(REPO / 'tools/derive_extrinsics.py'), '--model', str(model)],
                          capture_output=True, text=True)
@@ -132,7 +132,7 @@ def check_layout():
 
 def check_pipeline(pattern):
     if pattern is None:
-        record('观测结构（离线光线投射）', True, '未提供 --pattern，跳过')
+        record('观测结构（离线光线投射）', True, '找不到 src/experiment7（先跑 tools/prepare_workspace.sh），跳过')
         return
     out = subprocess.run([sys.executable, str(REPO / 'tools/simulate_pipeline.py'),
                           '--pattern', str(pattern)], capture_output=True, text=True)
@@ -157,11 +157,25 @@ def check_student_file():
     record('学生文件处于待完成状态', open_todos == 3, f'{open_todos}/3 个 TODO 未实现（交付时是正常状态）')
 
 
+def default_model():
+    """实验五源码就位时（克隆或教学包随包）直接用，不必每次手写路径。"""
+    candidate = REPO / 'src/experiment5/models/unitree_r1/model_depth.sdf'
+    return candidate if candidate.is_file() else None
+
+
+def default_pattern():
+    candidate = REPO / 'src/experiment7/vendor/livox/mid360.csv'
+    return candidate if candidate.is_file() else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--model', help='path to model_depth.sdf for the extrinsic cross-check')
     parser.add_argument('--pattern', help='path to vendor/livox/mid360.csv for the ray-cast check')
     args = parser.parse_args()
+
+    model = Path(args.model) if args.model else default_model()
+    pattern = Path(args.pattern) if args.pattern else default_pattern()
 
     print(f'仓库: {REPO}\n')
     check_syntax()
@@ -169,9 +183,9 @@ def main():
     check_yaml()
     check_topics()
     check_map()
-    check_extrinsics(args.model)
+    check_extrinsics(model)
     check_layout()
-    check_pipeline(args.pattern)
+    check_pipeline(pattern)
     check_tests()
     check_student_file()
 
