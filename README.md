@@ -78,15 +78,31 @@ K5 阻断型  0.000m 在必经路径上
 
 初始环境与实验 5—8 一致：Ubuntu 22.04 + ROS 2 Humble。RViz2 随 ROS 2 桌面版已装好，点云、栅格地图、机器人模型的显示插件都在其中，**不需要另外安装**；Gazebo Fortress 与 Nav2 不在初始环境内，由 `tools/install_dependencies.sh` 一并装齐。下列命令以 root、工作区 `/root/exp9` 为例。
 
+**方式一：教学包（推荐，含实验 5 / 实验 7 源码，不联网）**
+
+```bash
+apt install -y wget unzip
+mkdir -p /root/exp9 && cd /root/exp9
+wget "http://study.zhonghui.vip:10188/api/web/resource/embodied-1/EnvironmentalPerception/10/expPackages/experiment9_teaching_20261111.zip"
+unzip experiment9_teaching_20261111.zip -d /root/exp9
+bash tools/install_dependencies.sh
+bash tools/prepare_workspace.sh      # 包内已带依赖，只校验文件哈希与提交号
+bash tools/build.sh
+```
+
+教学包把 `src/experiment5`、`src/experiment7` 按固定提交一起打进来，`prepare_workspace.sh` 检测到 `BUNDLED_DEPENDENCIES.json` 就只做校验、**不访问网络**。
+
+**方式二：从代码仓库克隆（需要网络）**
+
 ```bash
 git clone https://github.com/huokumo/experiment-last.git /root/exp9
 cd /root/exp9
 bash tools/install_dependencies.sh
-bash tools/prepare_workspace.sh      # 拉取实验5（R1 模型）与实验7（Gazebo 插件），版本固定
+bash tools/prepare_workspace.sh      # 克隆实验5（R1 模型）与实验7（Gazebo 插件），版本固定
 bash tools/build.sh
 ```
 
-`prepare_workspace.sh` 会把实验 5 / 实验 7 克隆到 `src/` 下并校验到固定提交。Gazebo 的雷达与运动插件来自实验 7，**不要**再单独装同名包。
+没有随包依赖时，`prepare_workspace.sh` 会把实验 5 / 实验 7 克隆到 `src/` 下并校验到固定提交。Gazebo 的雷达与运动插件来自实验 7，**不要**再单独装同名包。
 
 ## 运行
 

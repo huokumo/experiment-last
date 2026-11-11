@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""打离线教学包：本仓库 + 实验五/实验七源码（固定提交）+ 依赖清单。
+
+教学镜像不一定能访问 GitHub，所以包里直接带上 src/experiment5 与
+src/experiment7，并生成 BUNDLED_DEPENDENCIES.json（逐文件 sha256），
+`tools/prepare_workspace.sh` 见到这个清单就只校验、不联网。
+
+    python3 tools/make_package.py --out expPackages/experiment9_teaching_20261111.zip
+    python3 tools/make_package.py --deps-dir /tmp/dep9 --out ...   # 复用已有克隆
+
+要求：本仓库工作区干净（清单按 HEAD 的内容生成）。
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from datetime import datetime
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ZIP_TIME = (1980, 1, 1, 0, 0, 0)   # 固定时间戳，同样的输入得到同样的包
+SKIP_DIRS = {'.git', '__pycache__', '.pytest_cache', 'build', 'install', 'log'}
+
+
+def run(*cmd, cwd=None, capture=False):
+    return subprocess.run(cmd, cwd=cwd, check=True, capture_output=capture)
+
+
+def extract_archive(repo, revision, target):
+    """把 git 里的某个提交导出到 target（等价 git archive | tar -x）。"""
+    target.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(['git', '-C', str(repo), 'archive', '--format=tar', revision],
+                            stdout=subprocess.PIPE)
+    with tarfile.open(fileobj=proc.stdout, mode='r|') as tar:
+        try:
+            tar.extractall(target, filter='tar')   # 保留权限位；Python 3.12 起默认过滤会改权限
+        except TypeError:                          # 老版本没有 filter 参数
+            tar.extractall(target)
+    if proc.wait() != 0:
+        raise RuntimeError(f'git archive 失败: {repo} @ {revision}')
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def collect_files(base, root):
+    """列出 base 下的普通文件，返回 {相对 root 的路径: sha256}。"""
+    files = {}
+    for path in sorted(base.rglob('*')):
+        if any(part in SKIP_DIRS for part in path.relative_to(base).parts):
+            continue
+        if path.is_file():
+            files[str(path.relative_to(root)).replace(os.sep, '/')] = sha256(path)
+    return files
+
+
+def write_zip(stage, out):
+    out.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for path in sorted(stage.rglob('*')):
+            relative = path.relative_to(stage)
+            if any(part in SKIP_DIRS for part in relative.parts):
+                continue
+            if path.is_dir():
+                info = zipfile.ZipInfo(str(relative).replace(os.sep, '/') + '/', ZIP_TIME)
+                info.external_attr = (0o40755 << 16) | 0x10
+                zf.writestr(info, b'')
+                continue
+            info = zipfile.ZipInfo(str(relative).replace(os.sep, '/'), ZIP_TIME)
+            mode = 0o100755 if os.access(path, os.X_OK) else 0o100644
+            info.external_attr = mode << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, path.read_bytes())
+            count += 1
+    return count
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--out', required=True, help='输出 zip 路径')
+    parser.add_argument('--deps-dir', help='已克隆的 experiment5 / experiment7 所在目录')
+    parser.add_argument('--allow-dirty', action='store_true', help='工作区有改动时仍然打包')
+    args = parser.parse_args()
+
+    out = Path(args.out).resolve()
+
+    dirty = subprocess.run(['git', '-C', str(REPO_ROOT), 'status', '--porcelain'],
+                           capture_output=True, text=True).stdout.strip()
+    if dirty and not args.allow_dirty:
+        print('工作区有未提交改动，先提交再打包（或用 --allow-dirty）：', file=sys.stderr)
+        print(dirty, file=sys.stderr)
+        return 2
+
+    lock = json.loads((REPO_ROOT / 'SOURCE_LOCK.json').read_text(encoding='utf-8'))
+    wanted = [item for item in lock['sources'] if item['name'] in ('experiment5', 'experiment7')]
+    if len(wanted) != 2:
+        print('SOURCE_LOCK.json 里找不到实验五/实验七的锁定记录', file=sys.stderr)
+        return 2
+
+    with tempfile.TemporaryDirectory(prefix='exp9_pkg_') as tmp:
+        stage = Path(tmp) / 'stage'
+        stage.mkdir()
+
+        extract_archive(REPO_ROOT, 'HEAD', stage)
+        (stage / 'BUNDLED_DEPENDENCIES.json').unlink(missing_ok=True)
+
+        manifest = {
+            'source': f'实验10 教学包，依赖源码随包，{datetime.now():%Y-%m-%d} 打包',
+            'dependencies': {},
+        }
+
+        for item in wanted:
+            name, commit = item['name'], item['commit']
+            local = Path(args.deps_dir) / name if args.deps_dir else None
+            if local and (local / '.git').is_dir():
+                head = run('git', '-C', str(local), 'rev-parse', 'HEAD',
+                           capture=True).stdout.decode().strip()
+                if head != commit:
+                    print(f'{name} 的 HEAD 是 {head[:8]}，不是锁定的 {commit[:8]}', file=sys.stderr)
+                    return 2
+                source = local
+            else:
+                source = Path(tmp) / name
+                if local:
+                    print(f'{local} 不是 git 仓库，改为临时克隆', file=sys.stderr)
+                run('git', 'clone', '--quiet', '--filter=blob:none', item['repository'], str(source))
+                run('git', '-C', str(source), 'checkout', '--quiet', commit)
+
+            target = stage / 'src' / name
+            extract_archive(source, commit, target)
+            files = collect_files(target, stage)
+            manifest['dependencies'][name] = {'commit': commit, 'files': files}
+            print(f'{name} @ {commit[:8]}: {len(files)} 个文件已计入清单')
+
+        (stage / 'BUNDLED_DEPENDENCIES.json').write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+        count = write_zip(stage, out)
+
+    size = out.stat().st_size / 1024 / 1024
+    print(f'已生成 {out}（{count} 个文件，{size:.1f} MB）')
+    print('校验: 解压后执行 bash tools/prepare_workspace.sh')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

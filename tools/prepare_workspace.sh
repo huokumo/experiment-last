@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# 把实验 5（R1 模型 + 深度相机）和实验 7（Gazebo 插件 + Livox 扫描图案）
-# 拉到工作区 src/ 下，版本固定，避免"上周还能跑"这类问题。
+# 准备好实验 5（R1 模型 + 深度相机）与实验 7（Gazebo 插件 + Livox 扫描图案），
+# 两种来源都支持，版本都固定，避免"上周还能跑、这周跑不起来"。
+#
+#   教学包（离线）：src/experiment5、src/experiment7 已随包提供，
+#                   本脚本只校验文件哈希与提交号，不联网；
+#   代码仓库（联网）：把两个仓库克隆到 src/ 下并切到固定提交。
 #
 #   bash tools/prepare_workspace.sh              # 默认工作区 = 本仓库根目录
 #   bash tools/prepare_workspace.sh /root/exp9
@@ -17,9 +21,19 @@ if [ ! -d "$WORKSPACE/src/experiment9_fusion" ]; then
   exit 2
 fi
 
+# 教学包分支：依赖源码随包提供，只做完整性校验，不访问网络。
+if [ -f "$WORKSPACE/BUNDLED_DEPENDENCIES.json" ]; then
+  python3 "$WORKSPACE/tools/verify_bundled_dependencies.py" "$WORKSPACE"
+  exit 0
+fi
+
 fetch() {
   local name=$1 commit=$2
   local target="$WORKSPACE/src/$name"
+  if [ -d "$target" ] && [ ! -d "$target/.git" ]; then
+    echo "$name 已存在但不是 git 仓库，也不是教学包 —— 请先删除 $target 再重试"
+    exit 2
+  fi
   if [ ! -d "$target/.git" ]; then
     echo "拉取 $name ..."
     git clone --filter=blob:none "https://github.com/huokumo/$name.git" "$target"
