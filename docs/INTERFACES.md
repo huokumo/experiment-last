@@ -63,9 +63,9 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
 | 话题 | 类型 | 频率 | 坐标系 | 说明 |
 | --- | --- | --- | --- | --- |
 | `/r1/fusion/points` | `sensor_msgs/PointCloud2` | ≈2 Hz（受深度帧率限制） | `base_link` | 融合结果，Nav2 两个代价地图都订阅它 |
-| `/r1/fusion/points_lidar` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 排障：只有雷达那一路 |
-| `/r1/fusion/points_depth` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 排障：只有深度那一路 |
-| `/r1/fusion/status` | `std_msgs/String` | ≈2 Hz | — | JSON：三路点数、`pair_dt`、`z_min/z_max` |
+| `/r1/fusion/points_lidar` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 只有雷达那一路：TODO 1 写完即出现，供分步验证 |
+| `/r1/fusion/points_depth` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 只有深度那一路：TODO 2 写完即出现 |
+| `/r1/fusion/status` | `std_msgs/String` | ≈2 Hz | — | JSON：`stage`（`lidar`/`lidar+depth`/`lidar+depth+merged`）、三路点数、`pair_dt`、`z_min/z_max` |
 | `/r1/cmd_vel` | `geometry_msgs/Twist` | 10 Hz | — | Nav2 → 仿真，限速 0.25 m/s、0.5 rad/s |
 
 **融合结果发布在 `base_link`，不是 `map`。** 代价地图已经知道怎么从 `base_link` 走到 `map`；发布在 `map` 会把机器人位姿重复叠加一次。

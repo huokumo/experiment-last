@@ -40,4 +40,3 @@ experiment9_fusion:
     # 深度相机 2 Hz（帧间隔 0.5 s），窗口必须大于一帧间隔，否则永远配不上
     sync_slop: 0.6
 
-    publish_debug: true

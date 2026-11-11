@@ -58,7 +58,7 @@ p_base = R @ p_lidar + t
 
 本仿真里 `R = I`，`t = (0, 0, 1.3)`：雷达装在机身上方 1.3 m，没有旋转。
 
-**这个 TODO 只有一行，但符号错了整片点云会低 2.6 m**，车会从托盘上碾过去。写完先用 `cloud_check.py --wall` 看墙距：如果雷达那一路的墙距偏差是 +130 cm 左右，就是符号反了。
+**这个 TODO 只有一行，但符号错了整片点云会低 2.6 m**。注意：`cloud_check.py --wall` 量的是水平（x）方向，z 方向错了它看不出来。符号反的表现是——RViz 里点云钻到地面以下、经过高度带过滤后合并点数骤降到几十个、车被拦在 K1 托盘前过不去。写完先看 `ros2 topic echo /r1/fusion/status --once` 里 `lidar_base` 与 `lidar_in` 是否接近。
 
 ### TODO 2 `depth_to_points` —— 深度图反投影
 
@@ -89,13 +89,27 @@ y = (v - cy) * z / fy
 
 ## 5. 五个环节（180 分钟）
 
+**先记住这条**：三个 TODO 是**分开生效**的，每写完一个就能立刻看到东西，不必等三个都写完。
+
+| 你写到哪 | 该看到什么 | 验证命令 |
+| --- | --- | --- |
+| 什么都没写 | 终端报 `TODO 1 transform_cloud not implemented yet`，没有任何点云 | `check_ready.py` 会提示"先确认 TODO 1" |
+| 只写完 TODO 1 | `/r1/fusion/points_lidar` 每秒约 2 帧；RViz（Fixed Frame = `map`）里雷达点云贴在墙面和柱子上 | `ros2 topic hz /r1/fusion/points_lidar`、`cloud_check.py --wall`（雷达那行有偏差数） |
+| 写完 TODO 1+2 | 多出 `/r1/fusion/points_depth`；两片点云在 RViz 里叠在同一面墙上 | `cloud_check.py --wall` 两路偏差都 < 5 cm |
+| 写完 TODO 3 | `/r1/fusion/points` 出现，`check_ready.py` 第 1 组全绿，代价地图里 K1/K5 出现 `@` | `costmap_dump.py`、`cloud_check.py` |
+
+> 发布节奏：`/r1/fusion/points_lidar` 与 `..._depth` 是排障用的单路点云，`/r1/fusion/points` 才是喂给 Nav2 的融合结果。前者有了、后者没有，说明卡在 TODO 3，不用去查 TF 和代价地图。
+> RViz 里勾选左侧 `Displays` 已有但默认关闭的"雷达（base_link）"/"深度（base_link）"两项，Color Transformer 用 `AxisColor`、Size 调 0.02，就能看清点落在哪。
+
 | 环节 | 时间 | 干什么 | 通过判据 |
 | --- | --- | --- | --- |
 | 0 起场景 | 25 min | `nav_demo.launch.py mode:=solution` + `check_ready.py` | 4/4 通过 |
-| 1 对坐标（TODO 1、2） | 55 min | 先只做雷达，再加深部；每步都用 `cloud_check --wall` 量墙距 | 两路墙距偏差 < 5 cm |
+| 1 对坐标（TODO 1、2） | 55 min | 先只做雷达（看 `points_lidar` 贴不贴墙），再加深部（看 `points_depth` 能否与雷达重合） | 两路墙距偏差 < 5 cm |
 | 2 合并（TODO 3） | 40 min | 发布 `/r1/fusion/points`，看 `costmap_dump` 里 `@` 有没有出现在 K1、K5 处 | `cloud_check` 表里该有数的关卡都有数 |
 | 3 发目标点 | 45 min | `send_goal.sh`，盯 `distance_remaining` 是否单调下降 | `status: SUCCEEDED`、碰撞帧 0 |
 | 4 收尾 | 15 min | 填表、写三行结论 | 交 `runs/*.csv` + 点数表 |
+
+**改完代码怎么生效**：`tools/build.sh` 用了 `colcon build --symlink-install`，所以改 `fusion.py` **不用重新编译**——`Ctrl-C` 停掉融合节点、重新 `launch` 即可。如果你自己用不带 `--symlink-install` 的方式编过，就必须重新 `colcon build`，否则改的是源码、跑的是旧副本（症状：改了半天毫无变化）。
 
 第 0 环节有个 5 分钟演示，务必做一次：
 
@@ -110,7 +124,9 @@ ros2 run tf2_ros static_transform_publisher --x 0.3 --y 0 --z 0 \
 
 | 现象 | 最可能的原因 | 一条命令定位 |
 | --- | --- | --- |
-| 融合节点不发布任何点云 | 三个 TODO 没写完 | 看终端：会打印 `TODO not implemented: TODO n` |
+| 什么点云都没有 | TODO 1 还没写完 | 终端会报 `TODO 1 transform_cloud not implemented yet` |
+| 有 `points_lidar`、没有 `points_depth` | TODO 2 还没写完 | 终端报 `TODO 2 depth_to_points not implemented yet` |
+| 两路单点云都有、没有 `points` | TODO 3 还没写完 | `ros2 topic echo /r1/fusion/status`，看 `stage` 字段 |
 | `/r1/fusion/points` 有数，代价地图全空 | TF 链断（缺 `odom→base_link`） | `ros2 run tf2_tools view_frames` |
 | 车被地面困死、原地不动 | `z_min` 太低，地面进了代价地图 | `cloud_check.py` 看总点数是否异常大 |
 | K1 托盘没进地图，车撞上去 | `z_min` 太高，把 0.35 m 的托盘切掉了 | 临时把 `z_min` 调到 0.0 再看 |
@@ -151,10 +167,10 @@ ros2 run tf2_ros static_transform_publisher --x 0.3 --y 0 --z 0 \
 | `/odom` | Odometry | 50 Hz | `odom → base_link` |
 | `/r1/cmd_vel` | Twist | — | Nav2 输出，限速 0.25 m/s |
 | `/r1/collision_blocked` | Bool | 事件 | 2D 保护判据拦截时为 true |
-| `/r1/fusion/points` | PointCloud2 | 5 Hz | **你的输出**，`base_link` |
-| `/r1/fusion/points_lidar` | PointCloud2 | 5 Hz | 排障用，只有雷达那一路 |
-| `/r1/fusion/points_depth` | PointCloud2 | 5 Hz | 排障用，只有深度那一路 |
-| `/r1/fusion/status` | String(JSON) | 5 Hz | 三路点数、配对 Δt、当前参数 |
+| `/r1/fusion/points` | PointCloud2 | ≈2 Hz | **你的输出**，`base_link`，Nav2 订阅的就是它 |
+| `/r1/fusion/points_lidar` | PointCloud2 | ≈2 Hz | 只有雷达那一路（TODO 1 写完就有） |
+| `/r1/fusion/points_depth` | PointCloud2 | ≈2 Hz | 只有深度那一路（TODO 2 写完就有） |
+| `/r1/fusion/status` | String(JSON) | ≈2 Hz | `stage`（走到哪一步）、三路点数、配对 Δt、当前参数 |
 | `/map` | OccupancyGrid | 一次 | 预置地图，只有墙和地面 |
 | `/global_costmap/costmap` | OccupancyGrid | 1 Hz | 代价地图 |
 | `/plan` | Path | 每次规划 | 全局路径 |

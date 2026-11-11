@@ -20,7 +20,7 @@ import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from experiment9_core import cloud_io, reference, scene9  # noqa: E402
+from experiment9_core import cloud_io, reference, scene9, stages  # noqa: E402
 from experiment9_student import fusion as student  # noqa: E402
 
 
@@ -201,6 +201,138 @@ class SceneTests(unittest.TestCase):
         self.assertAlmostEqual(translation[2], 1.154, places=3)
         self.assertLess(params['z_max'], 1.6, 'z_max must exclude the overhead beam')
         self.assertGreater(params['sync_slop'], 0.5, 'slop must exceed one depth frame (0.5 s)')
+
+
+class _OnlyLidar:
+    """TODO 1 written, the other two still open - the state after the first lab step."""
+
+    def transform_cloud(self, points, extrinsic):
+        rotation, translation = extrinsic
+        return (np.asarray(points, dtype=np.float32) @ rotation.T + translation).astype(np.float32)
+
+    def depth_to_points(self, *args, **kwargs):
+        raise NotImplementedError('TODO 2')
+
+    def merge_clouds(self, *args, **kwargs):
+        raise NotImplementedError('TODO 3')
+
+
+class _OnlyDepth:
+    """TODO 2 written, TODO 1 and 3 still open."""
+
+    def transform_cloud(self, *args, **kwargs):
+        raise NotImplementedError('TODO 1')
+
+    def depth_to_points(self, depth, intrinsics, extrinsic, min_range, max_range):
+        return np.zeros((7, 3), dtype=np.float32)
+
+    def merge_clouds(self, *args, **kwargs):
+        raise NotImplementedError('TODO 3')
+
+
+class _BrokenLidar:
+    """Raises instead of returning - one bad stage must not kill the frame."""
+
+    def transform_cloud(self, points, extrinsic):
+        raise ValueError('deliberate failure')
+
+    def depth_to_points(self, depth, intrinsics, extrinsic, min_range, max_range):
+        return np.zeros((7, 3), dtype=np.float32)
+
+    def merge_clouds(self, clouds, z_range, voxels):
+        return np.zeros((3, 3), dtype=np.float32)
+
+
+class _WrongShape:
+    """Returns (N, 2) instead of (N, 3)."""
+
+    def transform_cloud(self, points, extrinsic):
+        return np.zeros((5, 2), dtype=np.float32)
+
+    def depth_to_points(self, depth, intrinsics, extrinsic, min_range, max_range):
+        return np.zeros((5, 3), dtype=np.float32)
+
+    def merge_clouds(self, clouds, z_range, voxels):
+        return np.zeros((5, 3), dtype=np.float32)
+
+
+def stage_inputs():
+    """Fixed inputs; the geometry is deliberately simple - these tests check
+    failure isolation, not correctness of the maths."""
+    lidar = np.array([[0.0, 0.0, 0.5], [0.5, 0.2, 0.8], [1.0, -0.3, 1.0]], dtype=np.float32)
+    depth = np.full((12, 16), 0.3, dtype=np.float32)
+    intrinsics = {'fx': 20.0, 'fy': 20.0, 'cx': 8.0, 'cy': 6.0}
+    extrinsic = (np.eye(3, dtype=np.float32), np.array([0.0, 0.0, 0.5], dtype=np.float32))
+    return {
+        'lidar_raw': lidar,
+        'depth': depth,
+        'intrinsics': intrinsics,
+        'extrinsics': (extrinsic, extrinsic),
+        'depth_range': (0.05, 10.0),
+        'z_range': (0.10, 1.20),
+        'voxels': [0.10, 0.04],
+    }
+
+
+class StageIsolationTests(unittest.TestCase):
+    """The three TODOs must light up one at a time.
+
+    If the node ran them inside a single ``try``, a student who has only written
+    TODO 1 would see an empty topic and no way to tell whether the transform is
+    right. ``stages.run`` is the function that guarantees otherwise, so it is
+    tested without ROS.
+    """
+
+    def test_nothing_written_publishes_nothing(self):
+        result = stages.run(student, **stage_inputs())
+        self.assertIsNone(result['lidar'])
+        self.assertIsNone(result['depth'])
+        self.assertIsNone(result['merged'])
+        # merge is not attempted while its two inputs are missing, so two errors.
+        self.assertEqual(len(result['errors']), 2)
+        self.assertTrue(any('TODO 1' in e for e in result['errors']))
+        self.assertTrue(any('TODO 2' in e for e in result['errors']))
+
+    def test_only_todo1_is_written_still_produces_lidar(self):
+        result = stages.run(_OnlyLidar(), **stage_inputs())
+        self.assertEqual(result['lidar'].shape, (3, 3))
+        self.assertIsNone(result['depth'])
+        self.assertIsNone(result['merged'])
+        self.assertEqual(len(result['errors']), 1)
+        self.assertIn('TODO 2', result['errors'][0])
+
+    def test_only_todo2_is_written_still_produces_depth(self):
+        result = stages.run(_OnlyDepth(), **stage_inputs())
+        self.assertIsNone(result['lidar'])
+        self.assertEqual(result['depth'].shape, (7, 3))
+        self.assertIsNone(result['merged'])
+        self.assertEqual(len(result['errors']), 1)
+        self.assertIn('TODO 1', result['errors'][0])
+
+    def test_merge_is_only_attempted_once_both_inputs_exist(self):
+        result = stages.run(reference, **stage_inputs())
+        self.assertIsNotNone(result['lidar'])
+        self.assertIsNotNone(result['depth'])
+        self.assertIsNotNone(result['merged'])
+        self.assertGreater(result['merged'].shape[0], 0)
+        self.assertEqual(result['errors'], [])
+
+    def test_a_raising_stage_does_not_block_the_others(self):
+        result = stages.run(_BrokenLidar(), **stage_inputs())
+        self.assertIsNone(result['lidar'])
+        # TODO 2 still runs even though TODO 1 raised: that is the whole point.
+        self.assertEqual(result['depth'].shape, (7, 3))
+        # merge needs both inputs; with lidar missing it is not attempted.
+        self.assertIsNone(result['merged'])
+        self.assertEqual(len(result['errors']), 1)
+        self.assertIn('ValueError', result['errors'][0])
+        self.assertIn('deliberate failure', result['errors'][0])
+
+    def test_wrong_shape_is_reported_not_raised(self):
+        result = stages.run(_WrongShape(), **stage_inputs())
+        self.assertIsNone(result['lidar'])
+        self.assertIn('shape', result['errors'][0])
+        self.assertIn('(5, 2)', result['errors'][0])
 
 
 class StudentTests(unittest.TestCase):

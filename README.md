@@ -76,7 +76,7 @@ K5 阻断型  0.000m 在必经路径上
 
 ## 部署
 
-初始环境与实验 5—8 一致：Ubuntu 22.04 + ROS 2 Humble。下列命令以 root、工作区 `/root/exp9` 为例。
+初始环境与实验 5—8 一致：Ubuntu 22.04 + ROS 2 Humble。RViz2 随 ROS 2 桌面版已装好，点云、栅格地图、机器人模型的显示插件都在其中，**不需要另外安装**；Gazebo Fortress 与 Nav2 不在初始环境内，由 `tools/install_dependencies.sh` 一并装齐。下列命令以 root、工作区 `/root/exp9` 为例。
 
 ```bash
 cd /root/exp9

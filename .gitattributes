@@ -1,7 +1,11 @@
-* text=auto
+# 全仓库统一 LF：教学镜像与 CI 都在 Linux，CRLF 会让 .sh 直接 bad interpreter
+* text=auto eol=lf
 *.py text eol=lf
 *.sh text eol=lf
 *.yaml text eol=lf
 *.launch.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.rviz text eol=lf
 # occupancy grid raster: P5, must never be line-ending converted
 *.pgm binary

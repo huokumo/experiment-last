@@ -112,19 +112,28 @@ def main():
 
     rclpy.init()
     node = Check()
+    # The two per-sensor clouds appear as soon as TODO 1 / TODO 2 work, well
+    # before the merge does. Waiting only for those two keeps this tool useful
+    # during step 1 of the lab instead of exiting with "nothing received".
+    wanted = ['/r1/fusion/points_lidar', '/r1/fusion/points_depth']
     deadline = time.monotonic() + args.timeout
     try:
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
-            if all(topic in node.clouds for topic, _ in TOPICS):
+            if all(topic in node.clouds for topic in wanted):
                 break
         missing = [topic for topic, _ in TOPICS if topic not in node.clouds]
-        if missing:
-            print('没有收到: ' + ', '.join(missing), file=sys.stderr)
-            print('融合节点在跑吗？mode 是 student 时，三个 TODO 没写完是不会发布点云的。', file=sys.stderr)
+        if len(missing) == len(TOPICS):
+            print('三路点云都没收到。融合节点在跑吗？', file=sys.stderr)
+            print('mode=student 时，TODO 1 没写完就不会发布任何点云。', file=sys.stderr)
             return 1
+        if missing:
+            print('未收到: ' + ', '.join(missing), file=sys.stderr)
+            if '/r1/fusion/points' in missing:
+                print('（TODO 3 还没完成时这是正常的：下面"合并"列显示 —）', file=sys.stderr)
 
-        mapped = {topic: node.to_map(node.clouds[topic]) for topic, _ in TOPICS}
+        mapped = {topic: (node.to_map(node.clouds[topic]) if topic in node.clouds else None)
+                  for topic, _ in TOPICS}
         robot = None
         try:
             transform = node.buffer.lookup_transform('map', 'base_link', Time())
@@ -136,11 +145,16 @@ def main():
         header = f'{"关卡":<14}{"雷达":>8}{"深度":>8}{"合并":>8}   判定'
         print(header)
         print('-' * 52)
+        no_merge = mapped['/r1/fusion/points'] is None
         for name, (center, half) in CHECK_REGIONS.items():
             counts = [count_in_region(mapped[topic], center, half) for topic, _ in TOPICS]
-            merged = counts[2]
-            verdict = 'OK' if merged > 0 else '空 —— 该关卡的障碍没进融合'
-            print(f'{name:<14}{counts[0]:>8}{counts[1]:>8}{counts[2]:>8}   {verdict}')
+            if no_merge:
+                merged_text = '—'
+                verdict = '—（TODO 3 未完成）'
+            else:
+                merged_text = str(counts[2])
+                verdict = 'OK' if counts[2] > 0 else '空 —— 该关卡的障碍没进融合'
+            print(f'{name:<14}{counts[0]:>8}{counts[1]:>8}{merged_text:>8}   {verdict}')
 
         if args.wall:
             print()

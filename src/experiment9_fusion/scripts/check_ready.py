@@ -33,6 +33,10 @@ TOPICS = [
 
 FRAME_CHAIN = [('map', 'odom'), ('odom', 'base_link'), ('base_link', 'lidar_frame')]
 
+# Per-sensor clouds, not part of pass/fail: they exist as soon as TODO 1 / TODO 2
+# work, so their presence tells the student which stage the chain stops at.
+DEBUG_TOPICS = ['/r1/fusion/points_lidar', '/r1/fusion/points_depth']
+
 
 class Ready(Node):
     def __init__(self):
@@ -40,6 +44,10 @@ class Ready(Node):
         self.counts = {name: 0 for name, *_ in TOPICS}
         for topic, kind, *_ in TOPICS:
             self.create_subscription(kind, topic, self._make_counter(topic), qos_profile_sensor_data)
+        self.debug_counts = {topic: 0 for topic in DEBUG_TOPICS}
+        for topic in DEBUG_TOPICS:
+            self.create_subscription(PointCloud2, topic, self._make_debug_counter(topic),
+                                     qos_profile_sensor_data)
         self.costmap = None
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self._on_costmap,
                                  qos_profile_sensor_data)
@@ -53,6 +61,11 @@ class Ready(Node):
     def _make_counter(self, topic):
         def callback(_msg):
             self.counts[topic] += 1
+        return callback
+
+    def _make_debug_counter(self, topic):
+        def callback(_msg):
+            self.debug_counts[topic] += 1
         return callback
 
     def _on_costmap(self, msg):
@@ -176,6 +189,13 @@ def main():
         if passed != len(results):
             print('提示：没有 /map 与 /navigate_to_pose 时说明还停在 experiment9.launch.py，'
                   '导航相关检查需要 nav_demo.launch.py。')
+        if node.counts.get('/r1/fusion/points', 0) == 0:
+            live = [topic for topic in DEBUG_TOPICS if node.debug_counts.get(topic, 0) > 0]
+            if live:
+                print('融合链路只走到一半：' + '、'.join(live) + ' 有数据，但 /r1/fusion/points 没有。')
+                print('=> 三个 TODO 里 merge_clouds（TODO 3）还没完成。')
+            else:
+                print('融合节点没有任何点云输出：mode=student 时先确认 TODO 1（transform_cloud）能跑通。')
         return 0 if passed == len(results) else 1
     finally:
         node.destroy_node()

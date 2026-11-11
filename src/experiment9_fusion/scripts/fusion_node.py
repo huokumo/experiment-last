@@ -14,6 +14,11 @@ Chain::
 The merged cloud is published in ``base_link`` because Nav2's cost map already
 knows how to get from ``base_link`` to ``map``; publishing in ``map`` would
 silently double-apply the robot pose.
+
+Each stage publishes on its own (``/r1/fusion/points_lidar`` after TODO 1,
+``/r1/fusion/points_depth`` after TODO 2, ``/r1/fusion/points`` after TODO 3),
+so the three TODOs can be written and checked one at a time instead of all at
+once. ``/r1/fusion/status`` reports which stages are live under ``stage``.
 """
 
 import json
@@ -27,16 +32,15 @@ from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from std_msgs.msg import String
 
 import experiment9_student.fusion as student_fusion
-from experiment9_core import cloud_io, reference
+from experiment9_core import cloud_io, reference, stages
 
 class SingleSource:
     """Reference implementation restricted to one sensor.
 
-    This exists for the teacher-facing negative check in
-    ``docs/PLATFORM_VALIDATION.md``: if the robot still reaches the goal with
-    one cloud thrown away, the scenario is not actually testing fusion and the
-    checkpoints need re-placing. It is *not* a lab step - students never run
-    these two modes.
+    This exists for the negative check in ``docs/PLATFORM_VALIDATION.md``: if
+    the robot still reaches the goal with one cloud thrown away, the scenario is
+    not actually testing fusion and the checkpoints need re-placing. Teachers
+    must run both modes once; students may run them as a bonus exercise.
     """
 
     def __init__(self, keep):
@@ -81,7 +85,6 @@ class FusionNode(Node):
         self.declare_parameter('depth_min_range', 0.10)
         self.declare_parameter('depth_max_range', 10.0)
         self.declare_parameter('sync_slop', 0.6)
-        self.declare_parameter('publish_debug', True)
 
         self.mode = str(self.get_parameter('mode').value)
         if self.mode not in IMPLS:
@@ -100,12 +103,12 @@ class FusionNode(Node):
                        float(self.get_parameter('voxel_depth').value)]
         self.depth_min = float(self.get_parameter('depth_min_range').value)
         self.depth_max = float(self.get_parameter('depth_max_range').value)
-        self.publish_debug = bool(self.get_parameter('publish_debug').value)
         slop = float(self.get_parameter('sync_slop').value)
 
         self.camera_info = None
         self.failures = 0
         self.last_complaint = 0.0
+        self._stages_ok = set()
 
         self.create_subscription(CameraInfo, '/r1/depth/camera_info', self._on_camera_info, qos_profile_sensor_data)
         lidar_sub = Subscriber(self, PointCloud2, '/livox/points', qos_profile=qos_profile_sensor_data)
@@ -143,42 +146,56 @@ class FusionNode(Node):
         try:
             lidar_raw = cloud_io.read_xyz(cloud_msg)
             depth = cloud_io.decode_depth(image_msg)
-            lidar_base = np.asarray(self.impl.transform_cloud(lidar_raw, self.ext_lidar), dtype=np.float32)
-            depth_base = np.asarray(
-                self.impl.depth_to_points(depth, self.camera_info, self.ext_depth,
-                                          self.depth_min, self.depth_max), dtype=np.float32)
-            merged = np.asarray(
-                self.impl.merge_clouds([lidar_base, depth_base], self.z_range, self.voxels), dtype=np.float32)
-        except NotImplementedError as error:
-            self._complain(f'TODO not implemented: {error}')
-            return
-        except Exception as error:  # noqa: BLE001 - the lab must keep running
-            self._complain(f'{type(error).__name__}: {error}')
+        except Exception as error:  # noqa: BLE001 - a bad frame must not kill the node
+            self._complain(f'decode failed: {type(error).__name__}: {error}')
             return
 
-        for cloud in (lidar_base, depth_base, merged):
-            if cloud.ndim != 2 or cloud.shape[1] != 3:
-                self._complain(f'function returned shape {cloud.shape}, expected (N, 3)')
-                return
+        # Stages run in isolation (see experiment9_core/stages.py), so the three
+        # TODOs can be written one at a time: /points_lidar lights up after
+        # TODO 1, /points_depth after TODO 2, /points (the one Nav2 reads) after
+        # TODO 3. One try around all three would hide finished work behind the
+        # unfinished part and leave the student with no feedback at all.
+        result = stages.run(self.impl, lidar_raw, depth, self.camera_info,
+                            (self.ext_lidar, self.ext_depth),
+                            (self.depth_min, self.depth_max),
+                            self.z_range, self.voxels)
+        for message in result['errors']:
+            self._complain(message)
+        lidar_base, depth_base, merged = result['lidar'], result['depth'], result['merged']
 
-        self.failures = 0
-        self.points_pub.publish(cloud_io.write_xyz(merged, 'base_link', stamp))
-        if self.publish_debug:
-            self.lidar_pub.publish(cloud_io.write_xyz(lidar_base, 'base_link', stamp))
-            self.depth_pub.publish(cloud_io.write_xyz(depth_base, 'base_link', stamp))
+        done = []
+        for key, cloud, publisher in (('lidar', lidar_base, self.lidar_pub),
+                                      ('depth', depth_base, self.depth_pub),
+                                      ('merged', merged, self.points_pub)):
+            if cloud is None:
+                continue
+            publisher.publish(cloud_io.write_xyz(cloud, 'base_link', stamp))
+            done.append(key)
+            if key not in self._stages_ok:
+                self._stages_ok.add(key)
+                self.get_logger().info(f'{stages.LABELS[key]} OK -> publishing {self._topic_of(key)}')
+        if merged is not None:
+            self.failures = 0
 
         status = {
             'mode': self.mode,
+            'stage': '+'.join(done) if done else 'none',
             'lidar_in': int(lidar_raw.shape[0]),
-            'lidar_base': int(lidar_base.shape[0]),
+            'lidar_base': None if lidar_base is None else int(lidar_base.shape[0]),
             'depth_in': int(np.count_nonzero(np.isfinite(depth) & (depth > 0))),
-            'depth_base': int(depth_base.shape[0]),
-            'merged': int(merged.shape[0]),
+            'depth_base': None if depth_base is None else int(depth_base.shape[0]),
+            'merged': None if merged is None else int(merged.shape[0]),
             'pair_dt': round(dt, 4),
             'z_min': round(self.z_range[0], 3),
             'z_max': round(self.z_range[1], 3),
         }
         self.status_pub.publish(String(data=json.dumps(status, ensure_ascii=False)))
+
+    @staticmethod
+    def _topic_of(key):
+        return {'lidar': '/r1/fusion/points_lidar',
+                'depth': '/r1/fusion/points_depth',
+                'merged': '/r1/fusion/points'}[key]
 
     def _complain(self, text):
         """Rate-limit failure messages so a 5 Hz loop cannot flood the screen."""
