@@ -24,7 +24,6 @@ from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ZIP_TIME = (1980, 1, 1, 0, 0, 0)   # 固定时间戳，同样的输入得到同样的包
 SKIP_DIRS = {'.git', '__pycache__', '.pytest_cache', 'build', 'install', 'log'}
 
 
@@ -81,6 +80,12 @@ def collect_files(base, root):
 
 def write_zip(stage, out, modes):
     out.parent.mkdir(parents=True, exist_ok=True)
+    # 时间戳取打包时刻，不写死成 1980：解压到已经有 build/ 的工作区时，源文件的
+    # mtime 必须比旧产物新，否则 make 跳过重编、cmake_install 跳过重装，install/
+    # 里就留着上一版内容（典型症状：executable 'state_node.py' not found）。
+    # 包内容的一致性由 BUNDLED_DEPENDENCIES.json 的逐文件 sha256 保证，不依赖
+    # zip 字节可复现。
+    stamp = datetime.now().timetuple()[:6]
     count = 0
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in sorted(stage.rglob('*')):
@@ -88,12 +93,12 @@ def write_zip(stage, out, modes):
             if any(part in SKIP_DIRS for part in relative.parts):
                 continue
             if path.is_dir():
-                info = zipfile.ZipInfo(str(relative).replace(os.sep, '/') + '/', ZIP_TIME)
+                info = zipfile.ZipInfo(str(relative).replace(os.sep, '/') + '/', stamp)
                 info.external_attr = (0o40755 << 16) | 0x10
                 zf.writestr(info, b'')
                 continue
             relative_posix = str(relative).replace(os.sep, '/')
-            info = zipfile.ZipInfo(relative_posix, ZIP_TIME)
+            info = zipfile.ZipInfo(relative_posix, stamp)
             mode = 0o100755 if modes.get(relative_posix) else 0o100644
             info.external_attr = mode << 16
             info.compress_type = zipfile.ZIP_DEFLATED
