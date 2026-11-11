@@ -1,6 +1,6 @@
 # 实验10：仿真环境下的多传感器融合感知
 
-> **编号约定**：本仓库名为 `experiment9`、包名 `experiment9_fusion`、工作区 `/root/exp9`（沿用系列 `exp(N−1)` 的偏移），对应学生手册的**实验10**。
+> **编号约定**：本仓库为 `experiment-last`（`https://github.com/huokumo/experiment-last`）、包名 `experiment9_fusion`、工作区 `/root/exp9`（沿用系列 `exp(N−1)` 的偏移），对应学生手册的**实验10**。
 > 下文"实验 N"沿用**仓库编号**：实验 5 = `experiment5_depth`（R1 模型与深度相机）、实验 7 = `experiment7_lidar`（Gazebo 插件）、实验 8 = `experiment8_slam`（FAST-LIO）。换算成手册编号各 +1。
 
 承接实验 5、实验 7 的同一台 R1 机器人和同一间教室场景：**把深度相机的点云和激光雷达的点云对齐到同一个坐标系、合并成一片，交给 Nav2，然后发一个目标点，让机器人自己开过去。**
@@ -79,6 +79,7 @@ K5 阻断型  0.000m 在必经路径上
 初始环境与实验 5—8 一致：Ubuntu 22.04 + ROS 2 Humble。RViz2 随 ROS 2 桌面版已装好，点云、栅格地图、机器人模型的显示插件都在其中，**不需要另外安装**；Gazebo Fortress 与 Nav2 不在初始环境内，由 `tools/install_dependencies.sh` 一并装齐。下列命令以 root、工作区 `/root/exp9` 为例。
 
 ```bash
+git clone https://github.com/huokumo/experiment-last.git /root/exp9
 cd /root/exp9
 bash tools/install_dependencies.sh
 bash tools/prepare_workspace.sh      # 拉取实验5（R1 模型）与实验7（Gazebo 插件），版本固定
