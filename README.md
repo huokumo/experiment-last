@@ -83,8 +83,8 @@ K5 阻断型  0.000m 在必经路径上
 ```bash
 apt install -y wget unzip
 mkdir -p /root/exp9 && cd /root/exp9
-wget -O experiment9_teaching_20261112_v3.zip "http://study.zhonghui.vip:10188/api/web/resource/embodied-1/EnvironmentalPerception/10/expPackages/experiment9_teaching_20261112_v3.zip"
-unzip -o experiment9_teaching_20261112_v3.zip -d /root/exp9
+wget -O experiment9_teaching_20261112_v4.zip "http://study.zhonghui.vip:10188/api/web/resource/embodied-1/EnvironmentalPerception/10/expPackages/experiment9_teaching_20261112_v4.zip"
+unzip -o experiment9_teaching_20261112_v4.zip -d /root/exp9
 bash tools/install_dependencies.sh
 bash tools/prepare_workspace.sh      # 包内已带依赖，只校验文件哈希与提交号
 bash tools/build.sh

@@ -211,3 +211,35 @@ Gazebo 的深度相机只有在渲染循环真的在出图、且 info 话题有�
 节点时钟（`get_clock().now()`，与 `/clock`、与 TF 的 `odom→base_link` 同源），
 只在第一次打一条 warn，并在 `/r1/fusion/status` 的 `stamp_source` 字段里标成 `clock`
 （正常情况是 `image`）。这一层是兜底，不是常规路径：正常运行时不会触发。
+
+### 6. 规划路径在拐角处被 2D 保护判据判撞，车在空地上原地打转
+
+现象：融合 4/4 通过、`/r1/fusion/points` 8 Hz、代价地图里 K1 的 `@` 也标出来了，
+但 `send_goal.sh` 发出去之后车只走了 1.5 m 左右就停住，位置在十几位小数上
+纹丝不动、yaw 却以 0.31 rad/s 匀速转，`number_of_recoveries` 一路涨到 30+，
+`distance_remaining` 一步不降，最后 `Result: result: {}` 直接 abort。
+Gazebo 里看就是"停在一片空地上"，四周根本没有任何东西。
+
+原因：两个模型在拐角处不一致。
+
+* Nav2 把车当**圆**，`robot_radius = 0.45`，规划器在"离障碍 0.45 m"处就算自由；
+* 实验七的 `planar_motion_system` 把每个障碍箱按**每个轴各扩 0.45 m** 来判
+  （`segmentHitsBox` 里 `extent = half + radius`，是切比雪夫距离，不是欧氏）。
+
+直墙上两者一样，拐角处差 0.19 m（`0.45×(√2−1)`）。而原来的膨胀层只有
+`inflation_radius = 0.55 / cost_scaling_factor = 3.0`，软圈只有 0.10 m 宽，
+几乎没有把路径往通道中间推的力，NavFn 于是贴着障碍边缘 0.55 m 走——
+在 45° 拐角上切比雪夫距离只剩 0.39 m，低于保护判据要求的 0.45 m。
+车开到拐角前 0.5 m 处，RPP 的 `use_collision_detection` 先看到前方的
+253 格、判 Collision Ahead 退出，BT 进恢复、原地 spin，重新规划还是同一条路，
+于是无限循环。
+
+处理：把膨胀圈放大到 `inflation_radius = 0.90`、`cost_scaling_factor = 1.5`
+（local 与 global 两处）。软圈变成 0.45 m 宽、衰减更平缓，NavFn 为省代价
+自然走到通道中间。离线核算：路径 15.38 m → 16.58 m，离障碍最小欧氏距离
+0.55 → 0.73 m，最小切比雪夫距离 0.39 → 0.64 m，两个模型都接受。
+
+同时新增 `tools/check_route.py` 并接进 `tools/preflight.py`（第 16 项）：
+它先用 Nav2 的圆形+膨胀代价图规划一遍，再用保护判据的方形膨胀逐点复核，
+任何一步不合法就 FAIL。这类"两个模型各对一半"的问题，只有把两边放在一起
+才能离线复现，RViz 里是看不出来的。

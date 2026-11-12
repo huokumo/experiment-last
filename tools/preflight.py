@@ -150,6 +150,24 @@ def check_layout():
     record('关卡布局', ok, detail)
 
 
+def check_route():
+    """规划出来的路径，仿真保护判据必须每一步都接受。
+
+    Nav2 把车当圆（欧氏距离），实验七的运动保护判据把障碍按轴各扩一个足迹
+    半径（切比雪夫距离）。两者在直墙上一致、在拐角处差 0.19 m：路径若贴着
+    拐角 0.55 m 过，欧氏看着够、保护判据判撞，车就在空地上原地打转。
+    """
+    out = subprocess.run([sys.executable, str(REPO / 'tools/check_route.py')], capture_output=True, text=True)
+    ok = out.returncode == 0
+    if ok:
+        margin = [line for line in out.stdout.splitlines() if '切比雪夫' in line]
+        detail = margin[0].split('）')[-1].strip() if margin else 'route accepted by the guard'
+    else:
+        fails = [line for line in out.stdout.splitlines() if line.startswith('[FAIL]')]
+        detail = fails[0][7:] if fails else out.stderr.strip()[-100:]
+    record('规划路径被保护判据接受（拐角余量）', ok, detail)
+
+
 def check_pipeline(pattern):
     if pattern is None:
         record('观测结构（离线光线投射）', True, '找不到 src/experiment7（先跑 tools/prepare_workspace.sh），跳过')
@@ -206,6 +224,7 @@ def main():
     check_extrinsics(model)
     check_world_plugins(model)
     check_layout()
+    check_route()
     check_pipeline(pattern)
     check_tests()
     check_student_file()

@@ -1,9 +1,16 @@
 # Nav2 参数：为这台 0.45 m 半径、限速 0.25 m/s 的 R1 专门调过。
 #
-# 与本实验相关的只有三处，学生排障时先看这三处：
+# 与本实验相关的只有四处，学生排障时先看这四处：
 #   1. observation_sources.cloud.topic = /r1/fusion/points  （融合结果进代价地图的唯一入口）
 #   2. obstacle 层的 min/max_obstacle_height            （与 fusion.yaml 的 z_min/z_max 一致）
 #   3. robot_radius = 0.45                              （与仿真 2D 保护判据一致）
+#   4. inflation_radius = 0.90 / cost_scaling_factor = 1.5
+#      这个"软圈"比车身大得多，作用是让全局规划走在通道中间而不是贴着障碍边缘。
+#      原来是 0.55 / 3.0，圈只有 0.10 m 宽，规划出来的路径紧贴障碍 0.45 m；
+#      而仿真的 2D 保护判据按"方形膨胀"算（每个轴各让 0.45），拐角处比圆形
+#      模型多要 0.19 m，于是路径在拐角处被保护判据判撞；RViz 里看不到任何
+#      异常，车就在空地上原地打转、recoveries 一直涨、distance_remaining 不动。
+#      改大软圈后路径最小离障碍 0.73 m，两个模型都接受。
 bt_navigator:
   ros__parameters:
     use_sim_time: true
@@ -133,8 +140,8 @@ local_costmap:
           raytrace_max_range: 6.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 1.5
+        inflation_radius: 0.90
       always_send_full_costmap: true
 
 global_costmap:
@@ -170,6 +177,6 @@ global_costmap:
           raytrace_max_range: 9.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 1.5
+        inflation_radius: 0.90
       always_send_full_costmap: true
