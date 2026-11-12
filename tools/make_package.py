@@ -36,17 +36,21 @@ def extract_archive(repo, revision, target):
 
     返回 {相对 target 的路径: 是否可执行}。权限位必须从 git 索引取：
     在 Windows 上 os.access(X_OK) 对任何文件都返回真，会把整包标成 755。
+
+    archive 先落到临时文件再解开，不走管道：git 写、python 读的流式组合在
+    Windows 上偶尔会两边互相等住（git 占着管道、tarfile 还没读完），落盘后
+    git 的退出码也能直接检查。
     """
     target.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.Popen(['git', '-C', str(repo), 'archive', '--format=tar', revision],
-                            stdout=subprocess.PIPE)
-    with tarfile.open(fileobj=proc.stdout, mode='r|') as tar:
-        try:
-            tar.extractall(target, filter='tar')   # 保留权限位；Python 3.12 起默认过滤会改权限
-        except TypeError:                          # 老版本没有 filter 参数
-            tar.extractall(target)
-    if proc.wait() != 0:
-        raise RuntimeError(f'git archive 失败: {repo} @ {revision}')
+    with tempfile.TemporaryDirectory(prefix='git_archive_') as tmp:
+        archive = Path(tmp) / 'snapshot.tar'
+        subprocess.run(['git', '-C', str(repo), 'archive', '--format=tar',
+                        '-o', str(archive), revision], check=True)
+        with tarfile.open(archive, mode='r') as tar:
+            try:
+                tar.extractall(target, filter='tar')   # 保留权限位；Python 3.12 起默认过滤会改权限
+            except TypeError:                          # 老版本没有 filter 参数
+                tar.extractall(target)
 
     listing = subprocess.run(['git', '-C', str(repo), 'ls-tree', '-r', revision],
                              check=True, capture_output=True, text=True).stdout
