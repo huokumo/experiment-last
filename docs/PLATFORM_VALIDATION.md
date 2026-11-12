@@ -43,10 +43,10 @@ ros2 run experiment9_fusion check_ready.py          # 另一终端
 | `check_ready.py` | 4/4 通过 | | |
 | `/livox/points` 频率 | 约 5 Hz | | |
 | `/r1/depth/image` 频率 | 约 2 Hz | | |
-| `/r1/fusion/points` 频率 | 约 2 Hz（受深度帧率限制） | | |
+| `/r1/fusion/points` 频率 | 约 8 Hz（跟雷达同频，深度图按 2 Hz 刷新） | | |
 | `/odom` 频率 | 约 50 Hz | | |
 
-> 若 `/r1/fusion/points` 只有 0.7 Hz 左右，说明 `sync_slop` 太小、大量帧配不上。
+> 若 `/r1/fusion/points` 只有 2 Hz 左右，说明深度图断流、配对窗口以外的帧被丢掉；若为 0 Hz 且 `/r1/fusion/status` 一条都没有，先查两路 `stamp` 是否来自不同时钟（见附录 4）。
 
 ## 3. 融合质量
 
@@ -177,3 +177,25 @@ Gazebo 的深度相机只有在渲染循环真的在出图、且 info 话题有�
 * `/r1/fusion/status` 增加 `intrinsics` 字段，标明用的是 `camera_info` 还是 `geometry`；
 * `check_ready.py` 订阅 `/r1/fusion/status`，`/r1/fusion/points` 为 0 Hz 时能区分
   "一帧都没处理"（配对/话题问题）与"处理了但没产出"（TODO 问题）。
+
+### 4. 两路时间戳来自不同时钟，近似同步一帧都配不上
+
+补上 Sensors 插件、`/r1/depth/image` 恢复到 1.8 Hz 之后，`/r1/fusion/points` 仍是 0 Hz，
+而且 `/r1/fusion/status` **一条都没有**。取两路的时间戳：
+
+| 话题 | `header.stamp` |
+| --- | --- |
+| `/livox/points` | `3650.001 s` |
+| `/r1/depth/image` | `1696.000 s` |
+
+相差 1955 s。`ApproximateTimeSynchronizer(slop=0.6)` 按 `stamp` 配对，因此一帧都没配上，
+节点既不报错也不输出——症状和"TODO 没写"完全一样，是最容易误判的一种。
+
+处理：
+
+* `fusion_node` 改为按**到达时刻**配对（最新的雷达帧 + 最新的深度图，窗口
+  `max(2.0, 3×sync_slop)`），不再用 `message_filters`；
+* 三路输出点云统一改带**深度图的时间戳**（仿真时钟）。沿用雷达那个时钟会让
+  `/global_costmap` 查 `base_link→map` 时外推出界，点云被整帧丢掉；
+* `pair_dt` 继续上报两路 `stamp` 的真实差值，首次超过 5 s 时打一条 warn 说明原因；
+* 增加 1 Hz 看门狗：任一路断流 5 s 就报 `no /livox/points for 5 s`，不再"静默"。

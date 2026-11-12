@@ -26,7 +26,6 @@ import math
 
 import numpy as np
 import rclpy
-from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
@@ -115,10 +114,19 @@ class FusionNode(Node):
         self._stages_ok = set()
 
         self.create_subscription(CameraInfo, '/r1/depth/camera_info', self._on_camera_info, qos_profile_sensor_data)
-        lidar_sub = Subscriber(self, PointCloud2, '/livox/points', qos_profile=qos_profile_sensor_data)
-        depth_sub = Subscriber(self, Image, '/r1/depth/image', qos_profile=qos_profile_sensor_data)
-        self.sync = ApproximateTimeSynchronizer([lidar_sub, depth_sub], queue_size=20, slop=slop)
-        self.sync.registerCallback(self._on_pair)
+        # 不用 message_filters 的 ApproximateTimeSynchronizer：它按消息头里的 stamp 配对，
+        # 而在教学镜像上 /livox/points 的 stamp 与 /r1/depth/image 相差近 2000 s（两个时钟），
+        # 于是一帧都配不上，/r1/fusion/status 一条都不发，看起来像"融合节点没在工作"。
+        # 这里按到达时刻配对：同一进程里两路的到达时间用同一个时钟，永远可比。
+        self._lidar_msg = None
+        self._image_msg = None
+        self._lidar_t = self.get_clock().now().nanoseconds * 1e-9
+        self._image_t = self._lidar_t
+        self._pair_window = max(2.0, 3.0 * slop)   # 深度图 2 Hz，给足一个周期的余量
+        self._warned_clock = False
+        self.create_subscription(PointCloud2, '/livox/points', self._on_lidar, qos_profile_sensor_data)
+        self.create_subscription(Image, '/r1/depth/image', self._on_image, qos_profile_sensor_data)
+        self.create_timer(1.0, self._watchdog)
 
         self.points_pub = self.create_publisher(PointCloud2, '/r1/fusion/points', qos_profile_sensor_data)
         self.lidar_pub = self.create_publisher(PointCloud2, '/r1/fusion/points_lidar', qos_profile_sensor_data)
@@ -158,6 +166,46 @@ class FusionNode(Node):
                 'cx': width / 2.0, 'cy': height / 2.0,
                 'width': width, 'height': height}
 
+    # -- pairing -----------------------------------------------------------
+    def _now_s(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_lidar(self, msg):
+        self._lidar_msg = msg
+        self._lidar_t = self._now_s()
+        self._try_pair()
+
+    def _on_image(self, msg):
+        self._image_msg = msg
+        self._image_t = self._now_s()
+        self._try_pair()
+
+    def _try_pair(self):
+        """用"最新的雷达帧 + 最新的深度图"组一帧，按到达时刻判定新鲜度。
+
+        传感器侧的时间戳无法用来配对：教学镜像上 /livox/points 与
+        /r1/depth/image 的 stamp 相差将近 2000 s（两路来自不同时钟），
+        ApproximateTimeSynchronizer 因此永远配不上，节点不报错、也不输出，
+        表现是"雷达 8 Hz、深度图 2 Hz、融合点数 0 Hz、status 一条都没有"。
+        """
+        if self._lidar_msg is None or self._image_msg is None:
+            return
+        if self._now_s() - self._image_t > self._pair_window:
+            return
+        cloud_msg, image_msg = self._lidar_msg, self._image_msg
+        self._lidar_msg = None      # 每帧雷达只处理一次
+        try:
+            self._on_pair(cloud_msg, image_msg)
+        except Exception as error:   # noqa: BLE001 - 单帧异常不能掀翻节点
+            self._complain(f'pair failed: {type(error).__name__}: {error}')
+
+    def _watchdog(self):
+        now = self._now_s()
+        if self._lidar_msg is None and now - self._lidar_t > 5.0:
+            self._complain('no /livox/points for 5 s')
+        if self._image_msg is None and now - self._image_t > 5.0:
+            self._complain('no /r1/depth/image for 5 s')
+
     def _on_pair(self, cloud_msg, image_msg):
         intrinsics = self.camera_info
         if intrinsics is None:
@@ -168,9 +216,17 @@ class FusionNode(Node):
                     'no /r1/depth/camera_info yet, using the sensor geometry instead '
                     f'(fx={intrinsics["fx"]:.2f}, cx={intrinsics["cx"]:.1f}, '
                     f'cy={intrinsics["cy"]:.1f}); the result is unchanged')
-        stamp = cloud_msg.header.stamp
+        # 输出用深度图的时间戳：它来自仿真时钟，Nav2 的代价地图要拿这个 stamp 去
+        # TF 里查 base_link->map。雷达那路的时间戳是另一个时钟，直接沿用会让
+        # costmap 查 TF 时外推出界，点云会被整帧丢掉。
+        stamp = image_msg.header.stamp
         dt = abs(float(cloud_msg.header.stamp.sec - image_msg.header.stamp.sec)
                  + float(cloud_msg.header.stamp.nanosec - image_msg.header.stamp.nanosec) * 1e-9)
+        if not self._warned_clock and dt > 5.0:
+            self._warned_clock = True
+            self.get_logger().warn(
+                f'/livox/points 与 /r1/depth/image 的时间戳相差 {dt:.1f} s（两个时钟），'
+                '已改为按到达时刻配对，输出的点云统一带深度图的时间戳')
 
         try:
             lidar_raw = cloud_io.read_xyz(cloud_msg)

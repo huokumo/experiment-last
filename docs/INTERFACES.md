@@ -81,7 +81,7 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
 | `z_max` | 1.20 | 车高 0.5 m；K4 横梁 1.6 m 必须落在带外 |
 | `voxel_lidar` | 0.10 | 雷达 10 m 处点距约 5 cm |
 | `voxel_depth` | 0.04 | 深度 1 m 处点距约 6 mm |
-| `sync_slop` | 0.60 | 深度 2 Hz，帧间隔 0.5 s，窗口必须大于一帧 |
+| `sync_slop` | 0.60 | 配对新鲜度窗口取 `max(2.0, 3×sync_slop)`；深度 2 Hz，窗口必须大于一帧 |
 | `depth_min_range` / `depth_max_range` | 0.10 / 10.0 | 与 SDF 的 `clip` 一致 |
 
 `config/nav2_params.yaml`（关键三项）
@@ -92,10 +92,18 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
 | `max_obstacle_height` | 2.0 | 比融合的 `z_max` 宽，防止二次误杀 |
 | `robot_radius` | 0.45 | 与仿真 2D 保护判据一致，否则"感知说能过、保护说撞" |
 
-## 6. 时间同步
+## 6. 时间配对
 
-* Gazebo 用 `/clock`，所有节点必须 `use_sim_time: true`，否则时间戳对不上，`message_filters` 一帧也配不上。
-* 时间配对用 `ApproximateTimeSynchronizer(queue=20, slop=0.6)`，节点把实际 `pair_dt` 打进 `/r1/fusion/status`，报告里要引用这个数。
+* Gazebo 用 `/clock`，所有节点必须 `use_sim_time: true`。
+* **不用消息头里的 `stamp` 做配对**：教学镜像上实测 `/livox/points` 的 `stamp` 为 `3650 s`、
+  `/r1/depth/image` 为 `1696 s`，两路相差 1955 s（来自不同时钟）。`ApproximateTimeSynchronizer`
+  因此一帧都配不上，节点不报错也不输出，`/r1/fusion/status` 一条都没有。
+  现在按"最新的雷达帧 + 最新的深度图"配对，新鲜度看**到达时刻**，窗口
+  `max(2.0, 3×sync_slop)`。
+* 输出的三路点云统一带**深度图的时间戳**（仿真时钟）：`/global_costmap` 要拿这个 `stamp`
+  查 `base_link→map`，沿用雷达那个时钟会让 TF 外推出界、整帧被丢掉。
+* 节点把两路 `stamp` 的真实差值打进 `/r1/fusion/status` 的 `pair_dt`，首次超过 5 s 时打一条
+  warn；报告里要引用这个数，并说明"配对按到达时刻、输出用深度图时间戳"。
 * 雷达点云带逐点 `offset_time`（相对该帧起始，纳秒）。本实验不做运动补偿：0.22 m/s × 0.2 s 扫一帧 ≈ 4.4 cm，小于 K1 的余量，写进报告的"局限"里。
 
 ## 7. 场景几何
