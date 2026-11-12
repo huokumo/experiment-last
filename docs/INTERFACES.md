@@ -65,7 +65,7 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
 | `/r1/fusion/points` | `sensor_msgs/PointCloud2` | ≈2 Hz（受深度帧率限制） | `base_link` | 融合结果，Nav2 两个代价地图都订阅它 |
 | `/r1/fusion/points_lidar` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 只有雷达那一路：TODO 1 写完即出现，供分步验证 |
 | `/r1/fusion/points_depth` | `sensor_msgs/PointCloud2` | ≈2 Hz | `base_link` | 只有深度那一路：TODO 2 写完即出现 |
-| `/r1/fusion/status` | `std_msgs/String` | ≈2 Hz | — | JSON：`stage`（`lidar`/`lidar+depth`/`lidar+depth+merged`）、三路点数、`pair_dt`、`z_min/z_max` |
+| `/r1/fusion/status` | `std_msgs/String` | ≈2 Hz | — | JSON：`stage`（`lidar`/`lidar+depth`/`lidar+depth+merged`）、三路点数、`pair_dt`、`intrinsics`（`camera_info`/`geometry`）、`stamp_source`（`image`/`clock`）、`z_min/z_max` |
 | `/r1/cmd_vel` | `geometry_msgs/Twist` | 10 Hz | — | Nav2 → 仿真，限速 0.25 m/s、0.5 rad/s |
 
 **融合结果发布在 `base_link`，不是 `map`。** 代价地图已经知道怎么从 `base_link` 走到 `map`；发布在 `map` 会把机器人位姿重复叠加一次。
@@ -102,6 +102,9 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
   `max(2.0, 3×sync_slop)`。
 * 输出的三路点云统一带**深度图的时间戳**（仿真时钟）：`/global_costmap` 要拿这个 `stamp`
   查 `base_link→map`，沿用雷达那个时钟会让 TF 外推出界、整帧被丢掉。
+* 兜底：每帧都把深度图的 `stamp` 与节点时钟比一次，差超过 2 s 就改用 `get_clock().now()`
+  （与 `/clock`、与 TF 同源），`/r1/fusion/status` 的 `stamp_source` 会从 `image` 变成 `clock`。
+  正常运行不会触发，属于换机器/换 Gazebo 版本时的保险。
 * 节点把两路 `stamp` 的真实差值打进 `/r1/fusion/status` 的 `pair_dt`，首次超过 5 s 时打一条
   warn；报告里要引用这个数，并说明"配对按到达时刻、输出用深度图时间戳"。
 * 雷达点云带逐点 `offset_time`（相对该帧起始，纳秒）。本实验不做运动补偿：0.22 m/s × 0.2 s 扫一帧 ≈ 4.4 cm，小于 K1 的余量，写进报告的"局限"里。
