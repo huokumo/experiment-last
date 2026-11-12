@@ -5,7 +5,7 @@
 src/experiment7，并生成 BUNDLED_DEPENDENCIES.json（逐文件 sha256），
 `tools/prepare_workspace.sh` 见到这个清单就只校验、不联网。
 
-    python3 tools/make_package.py --out expPackages/experiment9_teaching_20261111.zip
+    python3 tools/make_package.py --out expPackages/experiment9_teaching_20261112.zip
     python3 tools/make_package.py --deps-dir /tmp/dep9 --out ...   # 复用已有克隆
 
 要求：本仓库工作区干净（清单按 HEAD 的内容生成）。

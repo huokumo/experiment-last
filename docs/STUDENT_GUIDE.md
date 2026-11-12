@@ -1,6 +1,6 @@
 # 实验10 学生指导手册：多传感器融合与自主导航
 
-> 教学包 `experiment9_teaching_20261111.zip` 解压到 `/root/exp9` 即可（包内已带实验五、实验七源码，不联网也能编译）；也可用仓库 `experiment-last`（`git clone https://github.com/huokumo/experiment-last.git /root/exp9`，需要网络）。文中"实验 N"是仓库编号（实验5 = `experiment5_depth`，实验7 = `experiment7_lidar`，实验8 = `experiment8_slam`），换算成手册编号各 +1。
+> 教学包 `experiment9_teaching_20261112.zip` 解压到 `/root/exp9` 即可（包内已带实验五、实验七源码，不联网也能编译）；也可用仓库 `experiment-last`（`git clone https://github.com/huokumo/experiment-last.git /root/exp9`，需要网络）。文中"实验 N"是仓库编号（实验5 = `experiment5_depth`，实验7 = `experiment7_lidar`，实验8 = `experiment8_slam`），换算成手册编号各 +1。
 
 > 4 课时，2 人一组。产出：一份能开车的工程 + 一张逐关卡点数表 + 一段 CSV。
 
