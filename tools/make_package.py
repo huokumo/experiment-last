@@ -95,6 +95,10 @@ def force_script_modes(modes):
     for path in list(modes):
         if '/scripts/' in path and path.endswith(('.py', '.sh')):
             modes[path] = True
+        if path.startswith('tools/') and path.endswith(('.py', '.sh')):
+            # Windows 上 core.fileMode=false，git 索引里新加的工具脚本一律是 644，
+            # 这里补齐，免得同一目录里一半 755 一半 644。
+            modes[path] = True
     return modes
 
 
