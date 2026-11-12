@@ -109,6 +109,7 @@ class FusionNode(Node):
 
         self.camera_info = None
         self._warned_intrinsics = False
+        self._warned_stamp = False
         self.failures = 0
         self.last_complaint = 0.0
         self._stages_ok = set()
@@ -220,6 +221,19 @@ class FusionNode(Node):
         # TF 里查 base_link->map。雷达那路的时间戳是另一个时钟，直接沿用会让
         # costmap 查 TF 时外推出界，点云会被整帧丢掉。
         stamp = image_msg.header.stamp
+        # 再兜一层：万一深度图的 stamp 也不是 /clock 那个时钟（换机器、换 Gazebo
+        # 版本都出现过），就和节点自己的时钟比一下。差超过 2 s 说明两者不同源，
+        # 改用节点时钟——它的 TF 一定能查到，代价只是比真实成像时刻晚几十毫秒。
+        image_s = float(stamp.sec) + float(stamp.nanosec) * 1e-9
+        stamp_source = 'image'
+        if abs(self._now_s() - image_s) > 2.0:
+            stamp = self.get_clock().now().to_msg()
+            stamp_source = 'clock'
+            if not self._warned_stamp:
+                self._warned_stamp = True
+                self.get_logger().warn(
+                    f'深度图时间戳 {image_s:.1f}s 与节点时钟 {self._now_s():.1f}s 不同源，'
+                    '输出点云改用节点时钟（否则代价地图查 TF 会外推出界）')
         dt = abs(float(cloud_msg.header.stamp.sec - image_msg.header.stamp.sec)
                  + float(cloud_msg.header.stamp.nanosec - image_msg.header.stamp.nanosec) * 1e-9)
         if not self._warned_clock and dt > 5.0:
@@ -271,6 +285,7 @@ class FusionNode(Node):
             'depth_base': None if depth_base is None else int(depth_base.shape[0]),
             'merged': None if merged is None else int(merged.shape[0]),
             'pair_dt': round(dt, 4),
+            'stamp_source': stamp_source,
             'intrinsics': 'camera_info' if self.camera_info is not None else 'geometry',
             'z_min': round(self.z_range[0], 3),
             'z_max': round(self.z_range[1], 3),

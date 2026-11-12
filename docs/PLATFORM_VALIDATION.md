@@ -199,3 +199,15 @@ Gazebo 的深度相机只有在渲染循环真的在出图、且 info 话题有�
   `/global_costmap` 查 `base_link→map` 时外推出界，点云被整帧丢掉；
 * `pair_dt` 继续上报两路 `stamp` 的真实差值，首次超过 5 s 时打一条 warn 说明原因；
 * 增加 1 Hz 看门狗：任一路断流 5 s 就报 `no /livox/points for 5 s`，不再"静默"。
+
+### 5. 深度图时间戳本身也可能不是 /clock 那个时钟
+
+第 4 条按"深度图的时间戳来自仿真时钟"做的前提，在换机器、换 Gazebo 版本时不总成立：
+`ros_gz_bridge` 对图像类消息的 `header.stamp` 偶尔会带上系统时钟。这种情形下融合点云
+仍然发得出来，但代价地图拿这个 stamp 去查 `odom→base_link` 会外推出界，整帧被丢，
+`/global_costmap` 里看不到障碍，表现是"融合正常、导航撞墙"。
+
+处理：`fusion_node` 每帧把深度图的 `stamp` 与节点自己的时钟比一次，差超过 2 s 就改用
+节点时钟（`get_clock().now()`，与 `/clock`、与 TF 的 `odom→base_link` 同源），
+只在第一次打一条 warn，并在 `/r1/fusion/status` 的 `stamp_source` 字段里标成 `clock`
+（正常情况是 `image`）。这一层是兜底，不是常规路径：正常运行时不会触发。
