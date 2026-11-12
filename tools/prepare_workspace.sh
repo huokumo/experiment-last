@@ -24,6 +24,11 @@ fi
 # 教学包分支：依赖源码随包提供，只做完整性校验，不访问网络。
 if [ -f "$WORKSPACE/BUNDLED_DEPENDENCIES.json" ]; then
   python3 "$WORKSPACE/tools/verify_bundled_dependencies.py" "$WORKSPACE"
+  # 权限位在这一步也兜一层：资源站转存、Windows 解压都会把 755 抹成 644，而
+  # --symlink-install 下 install/ 里的可执行权限完全跟随源码。build.sh 里也有
+  # 同样的处理，两处都留，是为了"只跑了这一个脚本"的人也不会踩到。
+  find "$WORKSPACE/src" -path '*/scripts/*' -type f \( -name '*.py' -o -name '*.sh' \) \
+    -exec chmod +x {} + 2>/dev/null || true
   exit 0
 fi
 

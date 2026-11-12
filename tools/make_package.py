@@ -82,6 +82,22 @@ def collect_files(base, root):
     return files
 
 
+def force_script_modes(modes):
+    """scripts/ 下的 .py/.sh 一律标成可执行。
+
+    权限位在分发链路上不可靠：资源站转存、浏览器下载、Windows 解压都会把它抹成
+    644，而 ``colcon build --symlink-install`` 装进 install/ 的是符号链接，权限跟着
+    源码走，源码 644 时 ``ros2 launch`` 就报
+    ``executable 'state_node.py' not found on the libexec directory``。
+    上游 experiment5/experiment7 的 git 索引里本来就有几个脚本是 644（运行时用
+    ``python3 x.py`` 调用），没必要让它们把整个链路带崩，这里统一抬到 755。
+    """
+    for path in list(modes):
+        if '/scripts/' in path and path.endswith(('.py', '.sh')):
+            modes[path] = True
+    return modes
+
+
 def write_zip(stage, out, modes):
     out.parent.mkdir(parents=True, exist_ok=True)
     # 时间戳取打包时刻，不写死成 1980：解压到已经有 build/ 的工作区时，源文件的
@@ -174,7 +190,7 @@ def main():
             json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
             encoding='utf-8', newline='\n')
 
-        count = write_zip(stage, out, modes)
+        count = write_zip(stage, out, force_script_modes(modes))
 
     size = out.stat().st_size / 1024 / 1024
     print(f'已生成 {out}（{count} 个文件，{size:.1f} MB）')
