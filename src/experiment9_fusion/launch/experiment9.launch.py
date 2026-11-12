@@ -44,6 +44,8 @@ def setup(context):
     # 工作区，make 判定无需重装），launch 原本只会抛一句
     #   executable 'state_node.py' not found on the libexec directory ...
     # 学生看不出下一步该做什么。这里提前拦住，直接给出要执行的那条命令。
+    # 注意用可执行位而不是存在性：--symlink-install 装的是符号链接，源码丢了 +x
+    # 时名字还在、却执行不了，ros2 launch 报的仍然是 not found。
     for path in (prefix7 / 'lib/experiment7_lidar/state_node.py',
                  prefix7 / 'lib/experiment7_lidar/preprocess_node.py',
                  prefix9 / 'lib/experiment9_fusion/fusion_node.py'):
@@ -52,6 +54,11 @@ def setup(context):
                 f'安装目录里缺少 {path}，说明工作区里的 build/install 还是旧版本。'
                 '在实验工作区执行 bash tools/build.sh 重新编译，'
                 '脚本会自己清掉旧构建，不需要手工删 build/。')
+        if not os.access(path, os.X_OK):
+            raise RuntimeError(
+                f'{path} 存在但不可执行，通常是对应的源码脚本没有执行位。'
+                '在实验工作区执行 bash tools/build.sh，脚本会把 src 下所有 .py/.sh '
+                '补成可执行后重新安装。')
 
     runtime = Path(tempfile.mkdtemp(prefix='experiment9_'))
     # The Livox scan pattern ships with Experiment 7. Reusing it keeps the two

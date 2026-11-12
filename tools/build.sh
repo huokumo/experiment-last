@@ -20,6 +20,12 @@ fi
 # 已是最新，install/ 里就留着上一版的内容。
 find src -type f -exec touch {} +
 
+# 脚本一律补上可执行位。--symlink-install 装进 install/ 的是符号链接，权限跟着
+# 源码走：源码是 644，install/ 里那个链接就不可执行，ros2 launch 会误报
+#   executable 'state_node.py' not found on the libexec directory ...
+# 解压工具、U 盘、复制粘贴都可能把权限磨掉，这里统一兜一层。
+find src -path '*/scripts/*' -type f \( -name '*.py' -o -name '*.sh' \) -exec chmod +x {} +
+
 compile() {
   colcon build --symlink-install \
     --packages-select experiment5_depth experiment7_lidar experiment9_fusion \
@@ -27,6 +33,8 @@ compile() {
 }
 
 # 少一个可执行文件，launch 时才会报 not found，不如在这里拦住。
+# 用 -x 而不是 -e：--symlink-install 下名字在、但链接指向的源码没有执行位，
+# ros2 launch 同样报 not found，这种情形只有 -x 能发现。
 install_complete() {
   local missing=0
   for exe in \
@@ -34,8 +42,8 @@ install_complete() {
     install/experiment7_lidar/lib/experiment7_lidar/preprocess_node.py \
     install/experiment9_fusion/lib/experiment9_fusion/fusion_node.py \
     install/experiment9_fusion/lib/experiment9_fusion/check_ready.py; do
-    if [ ! -e "$exe" ]; then
-      echo "  安装缺失: $WORKSPACE/$exe" >&2
+    if [ ! -x "$exe" ]; then
+      echo "  安装缺失或不可执行: $WORKSPACE/$exe" >&2
       missing=1
     fi
   done
@@ -49,6 +57,7 @@ if ! install_complete; then
   echo '安装目录与源码不一致，清掉 build/install/log 后重新编译…'
   rm -rf build install log
   find src -type f -exec touch {} +
+  find src -path '*/scripts/*' -type f \( -name '*.py' -o -name '*.sh' \) -exec chmod +x {} +
   compile
   source "$WORKSPACE/install/setup.bash"
   if ! install_complete; then
