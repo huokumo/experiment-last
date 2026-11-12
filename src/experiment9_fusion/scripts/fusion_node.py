@@ -22,6 +22,7 @@ once. ``/r1/fusion/status`` reports which stages are live under ``stage``.
 """
 
 import json
+import math
 
 import numpy as np
 import rclpy
@@ -85,6 +86,7 @@ class FusionNode(Node):
         self.declare_parameter('depth_min_range', 0.10)
         self.declare_parameter('depth_max_range', 10.0)
         self.declare_parameter('sync_slop', 0.6)
+        self.declare_parameter('depth_hfov', 1.047197551196598)
 
         self.mode = str(self.get_parameter('mode').value)
         if self.mode not in IMPLS:
@@ -103,9 +105,11 @@ class FusionNode(Node):
                        float(self.get_parameter('voxel_depth').value)]
         self.depth_min = float(self.get_parameter('depth_min_range').value)
         self.depth_max = float(self.get_parameter('depth_max_range').value)
+        self.depth_hfov = float(self.get_parameter('depth_hfov').value)
         slop = float(self.get_parameter('sync_slop').value)
 
         self.camera_info = None
+        self._warned_intrinsics = False
         self.failures = 0
         self.last_complaint = 0.0
         self._stages_ok = set()
@@ -135,10 +139,35 @@ class FusionNode(Node):
     def _on_camera_info(self, msg):
         self.camera_info = cloud_io.intrinsics_from_camera_info(msg)
 
+    @staticmethod
+    def _intrinsics_from_geometry(image_msg, hfov):
+        """Intrinsics for the case where CameraInfo never shows up.
+
+        Gazebo's depth camera only publishes CameraInfo while its render loop
+        is running for a subscriber, and on a software-rendered VM that topic
+        can stay silent for minutes (see gz-sensors#309). Waiting for it used
+        to drop every frame and leave ``/r1/fusion/points`` at 0 Hz with only a
+        "waiting for /r1/depth/camera_info" line as a clue. The numbers below
+        are the same ones the sensor reports: square pixels, non-distorted,
+        principal point at the image centre.
+        """
+        width = int(image_msg.width)
+        height = int(image_msg.height)
+        fx = (width / 2.0) / math.tan(hfov / 2.0)
+        return {'fx': fx, 'fy': fx,
+                'cx': width / 2.0, 'cy': height / 2.0,
+                'width': width, 'height': height}
+
     def _on_pair(self, cloud_msg, image_msg):
-        if self.camera_info is None:
-            self._complain('waiting for /r1/depth/camera_info')
-            return
+        intrinsics = self.camera_info
+        if intrinsics is None:
+            intrinsics = self._intrinsics_from_geometry(image_msg, self.depth_hfov)
+            if not self._warned_intrinsics:
+                self._warned_intrinsics = True
+                self.get_logger().warn(
+                    'no /r1/depth/camera_info yet, using the sensor geometry instead '
+                    f'(fx={intrinsics["fx"]:.2f}, cx={intrinsics["cx"]:.1f}, '
+                    f'cy={intrinsics["cy"]:.1f}); the result is unchanged')
         stamp = cloud_msg.header.stamp
         dt = abs(float(cloud_msg.header.stamp.sec - image_msg.header.stamp.sec)
                  + float(cloud_msg.header.stamp.nanosec - image_msg.header.stamp.nanosec) * 1e-9)
@@ -155,7 +184,7 @@ class FusionNode(Node):
         # TODO 1, /points_depth after TODO 2, /points (the one Nav2 reads) after
         # TODO 3. One try around all three would hide finished work behind the
         # unfinished part and leave the student with no feedback at all.
-        result = stages.run(self.impl, lidar_raw, depth, self.camera_info,
+        result = stages.run(self.impl, lidar_raw, depth, intrinsics,
                             (self.ext_lidar, self.ext_depth),
                             (self.depth_min, self.depth_max),
                             self.z_range, self.voxels)
@@ -186,6 +215,7 @@ class FusionNode(Node):
             'depth_base': None if depth_base is None else int(depth_base.shape[0]),
             'merged': None if merged is None else int(merged.shape[0]),
             'pair_dt': round(dt, 4),
+            'intrinsics': 'camera_info' if self.camera_info is not None else 'geometry',
             'z_min': round(self.z_range[0], 3),
             'z_max': round(self.z_range[1], 3),
         }

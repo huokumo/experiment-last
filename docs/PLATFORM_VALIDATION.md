@@ -158,3 +158,22 @@ ros2 run experiment9_fusion send_goal.sh          # 另终端
 处理：`scene9.generate` 补第四项插件，`render_engine` 与实验五一致取 `ogre2`；
 `tools/preflight.py` 增加第 15 项检查（世界含 Sensors 插件且实验五模型里确有
 `depth_camera` 传感器），这类问题下次在静态阶段就能拦住。
+
+### 3. 深度相机不出 CameraInfo 时整条链路静默
+
+补上 Sensors 插件后 `/r1/depth/image` 恢复到 1.5 Hz，但 `/r1/fusion/points` 仍是 0 Hz。
+原因不在融合算法：`fusion_node._on_pair` 开头就要求 `self.camera_info` 非空，否则
+直接 `return`，于是连 `/r1/fusion/status` 都不发。
+
+Gazebo 的深度相机只有在渲染循环真的在出图、且 info 话题有订阅者时才发 CameraInfo
+（gz-sensors#309）。软件渲染的虚拟机上这个话题经常长时间没有数据，症状是"雷达有、
+深度图有、融合没有"，很容易被误判成 TODO 写错。
+
+处理：
+
+* `fusion_node` 在 CameraInfo 缺席时按图像尺寸与 `depth_hfov` 现算内参
+  （`fx = (W/2)/tan(hfov/2)`，`cx = W/2`、`cy = H/2`），与相机自报的值一致
+  （138.56 / 80 / 60），只在第一次打一条 warn；
+* `/r1/fusion/status` 增加 `intrinsics` 字段，标明用的是 `camera_info` 还是 `geometry`；
+* `check_ready.py` 订阅 `/r1/fusion/status`，`/r1/fusion/points` 为 0 Hz 时能区分
+  "一帧都没处理"（配对/话题问题）与"处理了但没产出"（TODO 问题）。

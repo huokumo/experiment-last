@@ -37,6 +37,11 @@ experiment9_fusion:
     depth_min_range: 0.10
     depth_max_range: 10.0
 
+    # 兜底内参：正常情况下 fx/fy/cx/cy 从 /r1/depth/camera_info 读。Gazebo 的深度
+    # 相机只在渲染循环真的在出图时才发这个话题，软件渲染的虚拟机里它可能一直沉默
+    # （gz-sensors#309）。缺了就按 SDF 里的 HFOV 现算，数值与相机自报的一致。
+    depth_hfov: 1.047197551196598
+
     # 深度相机 2 Hz（帧间隔 0.5 s），窗口必须大于一帧间隔，否则永远配不上
     sync_slop: 0.6
 

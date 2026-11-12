@@ -53,7 +53,7 @@ ROS 2 参数不支持二维数组，所以矩阵按行摊平成 9 个数；`clou
 | --- | --- | --- | --- | --- |
 | `/livox/points` | `sensor_msgs/PointCloud2` | 5 Hz | `lidar_frame` | 实验 7 的 CPU 光线投射插件（字段含 `offset_time`） |
 | `/r1/depth/image` | `sensor_msgs/Image` | 2 Hz | — | Gazebo `depth_camera`，`32FC1`，单位米 |
-| `/r1/depth/camera_info` | `sensor_msgs/CameraInfo` | 2 Hz | — | fx=fy=138.56, cx=80, cy=60 |
+| `/r1/depth/camera_info` | `sensor_msgs/CameraInfo` | 2 Hz | — | fx=fy=138.56, cx=80, cy=60；话题无数据时节点按 `depth_hfov` 现算，结果相同 |
 | `/odom` | `nav_msgs/Odometry` | 50 Hz | `odom` | 平面运动系统的真实位姿（即真值，不另设 `/r1/ground_truth`） |
 | `/r1/collision_blocked` | `std_msgs/Bool` | 事件 | — | 2D 圆 vs 矩形保护判据 |
 | `/clock` | `rosgraph_msgs/Clock` | — | — | 必须 `use_sim_time:=true` |

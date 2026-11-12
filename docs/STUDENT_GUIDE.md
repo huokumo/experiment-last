@@ -72,7 +72,7 @@ y = (v - cy) * z / fy
 
 再转到车身系：`p_base = R @ p_cam + t`。
 
-`fx = fy = 138.56`、`cx = 80`、`cy = 60`，运行时从 `/r1/depth/camera_info` 读，不要写死。
+`fx = fy = 138.56`、`cx = 80`、`cy = 60`，运行时优先从 `/r1/depth/camera_info` 读，不要写死。万一这个话题一直没数据（Gazebo 的深度相机只在渲染真的在出图时才发它），融合节点会按 SDF 的 `horizontal_fov` 现算一组同样的内参，并在 `/r1/fusion/status` 的 `intrinsics` 字段里标成 `geometry`。
 
 两个坑：
 

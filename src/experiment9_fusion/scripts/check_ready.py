@@ -11,6 +11,7 @@ number of seconds, which is what you want right after ``launch``.
 """
 
 import argparse
+import json
 import sys
 import time
 
@@ -20,6 +21,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profi
 from rclpy.time import Time
 from nav_msgs.msg import OccupancyGrid, Odometry
 from sensor_msgs.msg import Image, PointCloud2
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 
@@ -51,6 +53,10 @@ class Ready(Node):
         self.costmap = None
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self._on_costmap,
                                  qos_profile_sensor_data)
+        # Last line of the fusion node's own report: tells us whether frames are
+        # being paired at all, and which stage they reach.
+        self.status = None
+        self.create_subscription(String, '/r1/fusion/status', self._on_status, 10)
         self.static_map = None
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -73,6 +79,12 @@ class Ready(Node):
 
     def _on_map(self, msg):
         self.static_map = msg
+
+    def _on_status(self, msg):
+        try:
+            self.status = json.loads(msg.data)
+        except ValueError:
+            self.status = {'raw': msg.data}
 
 
 def check_rates(node, seconds):
@@ -191,11 +203,16 @@ def main():
                   '导航相关检查需要 nav_demo.launch.py。')
         if node.counts.get('/r1/fusion/points', 0) == 0:
             live = [topic for topic in DEBUG_TOPICS if node.debug_counts.get(topic, 0) > 0]
-            if live:
+            status = node.status
+            if status is None:
+                print('融合节点连一帧都没处理：/r1/fusion/status 没有任何消息。')
+                print('=> /livox/points 与 /r1/depth/image 没配成对，先看启动终端里的报错。')
+            elif live:
                 print('融合链路只走到一半：' + '、'.join(live) + ' 有数据，但 /r1/fusion/points 没有。')
                 print('=> 三个 TODO 里 merge_clouds（TODO 3）还没完成。')
             else:
-                print('融合节点没有任何点云输出：mode=student 时先确认 TODO 1（transform_cloud）能跑通。')
+                print(f'融合节点在处理帧但没产出点云（stage={status.get("stage")!r}, '
+                      f'mode={status.get("mode")!r}）：mode=student 时先确认 TODO 1（transform_cloud）能跑通。')
         return 0 if passed == len(results) else 1
     finally:
         node.destroy_node()
