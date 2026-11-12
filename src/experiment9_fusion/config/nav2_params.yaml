@@ -11,6 +11,16 @@
 #      模型多要 0.19 m，于是路径在拐角处被保护判据判撞；RViz 里看不到任何
 #      异常，车就在空地上原地打转、recoveries 一直涨、distance_remaining 不动。
 #      改大软圈后路径最小离障碍 0.73 m，两个模型都接受。
+#   5. FollowPath.use_collision_detection = false
+#      RPP 自带的前视碰撞检查会给"曲率弧线上的点"判死：它在机器人前方 0.55 m
+#      的弧上逐点查代价，只要有一点落进 253（膨胀区内圈，半径正好 = robot_radius）
+#      就退出 ComputeVelocityCommands。车在围栏拐角处跟随时，弧线天然切内道，
+#      哪怕规划路径本身离障碍 0.73 m，弧上那一点也可能只剩 0.3 m，于是每 10 Hz
+#      退一次。表现和"被挡住"一模一样：位置十几位小数不变、原地 spin、
+#      number_of_recoveries 一直涨。本实验的安全网是仿真里的 2D 保护判据
+#      （0.45 m 方形膨胀），它才是"融合对不对"的判据；这里再叠一层更严的检查
+#      只会把合法路径否掉，所以关掉它。
+#      连带把 lookahead 收短，让实际轨迹贴着规划路径走，不在拐角切内道。
 bt_navigator:
   ros__parameters:
     use_sim_time: true
@@ -45,14 +55,14 @@ controller_server:
     FollowPath:
       plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
       desired_linear_vel: 0.22
-      lookahead_dist: 0.55
-      min_lookahead_dist: 0.35
-      max_lookahead_dist: 0.85
+      lookahead_dist: 0.45
+      min_lookahead_dist: 0.30
+      max_lookahead_dist: 0.60
       lookahead_time: 1.5
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.60
-      use_collision_detection: true
+      use_collision_detection: false
       max_allowed_time_to_collision_up_to_carrot: 1.5
       use_regulated_linear_velocity_scaling: true
       use_cost_regulated_linear_velocity_scaling: false
