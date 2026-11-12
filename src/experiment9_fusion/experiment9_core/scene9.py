@@ -150,6 +150,15 @@ def generate(exp5, destination, pattern_csv, samples=12000, frequency=5.0):
         ET.SubElement(world, 'plugin',
                       filename=f'libignition-gazebo-{lib}-system.so',
                       name=f'ignition::gazebo::systems::{name}')
+
+    # 深度相机是渲染类传感器，必须由 Sensors 系统驱动才会出帧。实验五的世界里
+    # 显式写了这个插件，本实验的 SDF 是在代码里现生成的，漏了它会出现一个很
+    # 迷惑的现象：/livox/points 正常（雷达是实验七自写的 CPU 光线投射插件，不走
+    # 渲染），而 /r1/depth/image 一直是 0 Hz。render_engine 与实验五保持一致。
+    sensors = ET.SubElement(world, 'plugin',
+                            filename='libignition-gazebo-sensors-system.so',
+                            name='ignition::gazebo::systems::Sensors')
+    _text(sensors, 'render_engine', 'ogre2')
     light = ET.SubElement(world, 'light', name='sun', type='directional')
     _text(light, 'pose', '0 0 8 0 0 0')
     _text(light, 'direction', '-0.5 0.2 -1')

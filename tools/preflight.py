@@ -123,6 +123,26 @@ def check_extrinsics(model=None):
     record('外参与 SDF 一致', same, 'compared with derive_extrinsics.py')
 
 
+def check_world_plugins(model):
+    """深度相机靠 Sensors 系统出帧，而本实验的 SDF 是代码现生成的，最容易漏。
+
+    漏了它的症状很有迷惑性：/livox/points 正常（雷达是实验七自写的 CPU 光线
+    投射插件，不走渲染），/r1/depth/image 却一直是 0 Hz。
+    """
+    source = (PACKAGE / 'experiment9_core/scene9.py').read_text(encoding='utf-8')
+    ok = 'libignition-gazebo-sensors-system.so' in source
+    if not ok:
+        detail = 'scene9.generate 缺少 Sensors 系统，/r1/depth/image 不会出帧'
+    elif model is None:
+        detail = 'Sensors 系统已写入（实验五源码缺失，未核对传感器定义）'
+    else:
+        text = Path(model).read_text(encoding='utf-8', errors='ignore')
+        has_camera = 'depth_camera' in text and '/r1/depth/image' in text
+        ok = has_camera
+        detail = 'Sensors 系统 + 模型内 depth_camera' if ok else '实验五模型里找不到 depth_camera 传感器'
+    record('世界含 Sensors 插件（深度相机出帧前提）', ok, detail)
+
+
 def check_layout():
     out = subprocess.run([sys.executable, str(REPO / 'tools/check_layout.py')], capture_output=True, text=True)
     ok = out.returncode == 0 and '全部阻断型关卡都在最短路径上' in out.stdout
@@ -184,6 +204,7 @@ def main():
     check_topics()
     check_map()
     check_extrinsics(model)
+    check_world_plugins(model)
     check_layout()
     check_pipeline(pattern)
     check_tests()

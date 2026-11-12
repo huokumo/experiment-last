@@ -126,3 +126,35 @@ ros2 run experiment9_fusion send_goal.sh          # 另终端
 | 是否可以在课堂上使用 | |
 | 需要修的问题 | |
 | 建议的课时调整 | |
+
+## 附录：2026-11-12 首次平台实测发现
+
+教学镜像（Ubuntu 22.04，无 GPU，软件渲染）上按手册第 1～5 步实跑，发现两个静态检查
+抓不到、只在运行时暴露的问题，均已修复。
+
+### 1. 教学包解压后脚本没有执行位
+
+`src/experiment7/scripts/*.py` 全部是 `644`。`--symlink-install` 装进 `install/` 的是
+指向源码的符号链接，权限跟着源码走，于是启动时报
+`executable 'state_node.py' not found on the libexec directory ...`。压缩包里记录的
+权限位是 755，是资源库转存时丢掉了 Unix 权限位。
+
+处理：手册第 2 步新增一条 `chmod`；`tools/build.sh` 编译前统一补 `+x`，安装自检
+从 `-e` 改为 `-x`；`experiment9.launch.py` 区分"缺失"与"存在但不可执行"。
+
+### 2. 生成的 SDF 缺 Sensors 系统插件，深度相机不出帧
+
+`scene9.generate` 只写了 Physics、UserCommands、SceneBroadcaster 三个 world 插件。
+实验五的两个 world 里都显式写了 `libignition-gazebo-sensors-system.so`，本实验的 SDF
+是代码现拼的，漏了这一个。表现极易误判：
+
+| 话题 | 实测 |
+| --- | --- |
+| `/livox/points` | 8.0 Hz（正常，雷达是实验七自写的 CPU 光线投射插件，不走渲染） |
+| `/r1/depth/image` | **0.0 Hz** |
+| `/r1/fusion/points` | 0.0 Hz（`mode:=student` 未实现 TODO 时的正常表现） |
+| `/odom`、TF 链、`/map`、代价地图、`navigate_to_pose` | 全部正常 |
+
+处理：`scene9.generate` 补第四项插件，`render_engine` 与实验五一致取 `ogre2`；
+`tools/preflight.py` 增加第 15 项检查（世界含 Sensors 插件且实验五模型里确有
+`depth_camera` 传感器），这类问题下次在静态阶段就能拦住。
