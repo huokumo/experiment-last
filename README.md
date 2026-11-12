@@ -83,12 +83,14 @@ K5 阻断型  0.000m 在必经路径上
 ```bash
 apt install -y wget unzip
 mkdir -p /root/exp9 && cd /root/exp9
-wget "http://study.zhonghui.vip:10188/api/web/resource/embodied-1/EnvironmentalPerception/10/expPackages/experiment9_teaching_20261111.zip"
-unzip experiment9_teaching_20261111.zip -d /root/exp9
+wget -O experiment9_teaching_20261111.zip "http://study.zhonghui.vip:10188/api/web/resource/embodied-1/EnvironmentalPerception/10/expPackages/experiment9_teaching_20261111.zip"
+unzip -o experiment9_teaching_20261111.zip -d /root/exp9
 bash tools/install_dependencies.sh
 bash tools/prepare_workspace.sh      # 包内已带依赖，只校验文件哈希与提交号
 bash tools/build.sh
 ```
+
+若 `/root/exp9` 里已有做过实验的旧工程，先从第 2 行之前删掉整个目录（`rm -rf /root/exp9`）再重建：`-o` 只保证同名文件被覆盖，不会清掉上一版留下的 `build/`。
 
 教学包把 `src/experiment5`、`src/experiment7` 按固定提交一起打进来，`prepare_workspace.sh` 检测到 `BUNDLED_DEPENDENCIES.json` 就只做校验、**不访问网络**。
 
